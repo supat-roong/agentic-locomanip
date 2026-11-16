@@ -7,7 +7,7 @@ still has to look around / move to find things.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import mujoco
 import numpy as np
