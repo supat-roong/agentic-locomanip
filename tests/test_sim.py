@@ -39,5 +39,24 @@ def test_pick_requires_reach(sim):
     from tron2_agent.skills import Skills
 
     sim.reset()
-    r = Skills(sim).pick("red_cube")
+    k = Skills(sim)
+    k.detect()
+    r = k.pick("red_cube")
     assert not r["success"] and "out of arm reach" in r["message"]
+
+
+def test_moving_away_from_table_is_allowed(sim):
+    from tron2_agent.skills import Skills
+
+    k = Skills(sim)
+    near = np.array([1.5, 0.0])  # inside table_A's inflated footprint
+    assert k._segment_hits_table(near, np.array([0.5, 0.0])) is None
+    assert k._segment_hits_table(near, np.array([2.0, 0.0])) == "table_A"
+
+
+def test_approach_requires_seen_item(sim):
+    from tron2_agent.skills import Skills
+
+    sim.reset()
+    r = Skills(sim).approach("bin")
+    assert not r["success"] and "not been seen" in r["message"]

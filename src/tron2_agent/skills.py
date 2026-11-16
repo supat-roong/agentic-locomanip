@@ -50,6 +50,7 @@ class Skills:
         self.objects = {o.name: o for o in cfg.objects}
         self.bins = {b.name: b for b in cfg.bins}
         self.tables = {t.name: t for t in cfg.tables}
+        self.seen: dict[str, np.ndarray] = {}  # last-seen world position of each item
 
     # ---------------------------------------------------------------- helpers
     def _tick(self, n: int = 1) -> bool:
@@ -125,12 +126,23 @@ class Skills:
         c = self._contacts_with(name)
         return "gripper1_Link" in c and "gripper2_Link" in c
 
+    @staticmethod
+    def _box_dist(p: np.ndarray, centre, hx: float, hy: float) -> float:
+        """Chebyshev-style distance to an axis-aligned box (negative inside)."""
+        return max(abs(p[0] - centre[0]) - hx, abs(p[1] - centre[1]) - hy)
+
     def _segment_hits_table(self, a: np.ndarray, b: np.ndarray) -> str | None:
+        """Table whose inflated footprint the straight segment a->b enters.
+
+        If the robot already stands inside an inflated footprint (e.g. right
+        after manipulating at a table) only motion that goes deeper is blocked.
+        """
+        hx, hy = TABLE_HALF[0] + ROBOT_RADIUS - 0.05, TABLE_HALF[1] + ROBOT_RADIUS - 0.05
         for t in self.tables.values():
-            hx, hy = TABLE_HALF[0] + ROBOT_RADIUS - 0.05, TABLE_HALF[1] + ROBOT_RADIUS - 0.05
-            for s in np.linspace(0, 1, 50):
-                p = a + (b - a) * s
-                if abs(p[0] - t.pos[0]) < hx and abs(p[1] - t.pos[1]) < hy:
+            d0 = self._box_dist(a, t.pos, hx, hy)
+            limit = min(0.0, d0 - 0.01)
+            for s_ in np.linspace(0, 1, 50)[1:]:
+                if self._box_dist(a + (b - a) * s_, t.pos, hx, hy) < limit:
                     return t.name
         return None
 
@@ -149,39 +161,72 @@ class Skills:
             sim_time_s=round(self.sim.time, 2),
         )
 
-    def detect(self) -> dict:
-        """Items visible in the head camera, with world and robot-relative positions."""
+    def _observe(self) -> list[str]:
+        """Update item memory from the head camera; return names currently visible."""
         mujoco.mj_forward(self.sim.m, self.sim.d)
-        items = []
-        names = list(self.objects) + list(self.bins) + list(self.tables)
-        for n in names:
+        visible = []
+        for n in list(self.objects) + list(self.bins) + list(self.tables):
             p = self.sim.body_pos(n)
             if n in self.tables:
                 p = p + np.array([0, 0, TABLE_H])
-            if not self._in_head_view(p):
-                continue
-            fwd, left = self._to_robot_frame(p)
-            kind = "object" if n in self.objects else "bin" if n in self.bins else "table"
-            entry = {
-                "name": n,
-                "kind": kind,
-                "world_xyz": [round(float(v), 3) for v in p],
-                "forward_m": round(fwd, 2),
-                "left_m": round(left, 2),
-                "distance_m": round(float(np.hypot(fwd, left)), 2),
-            }
-            if kind == "object":
-                o = self.objects[n]
-                entry.update(color=o.color, shape=o.shape)
-                t = self._table_of(p)
-                entry["on"] = t.name if t else ("gripper" if self.holding == n else "floor")
-            if kind == "bin":
-                t = self._table_of(p)
-                entry["on"] = t.name if t else "floor"
-            items.append(entry)
-        return ok(f"{len(items)} items visible", items=items)
+            if self._in_head_view(p):
+                self.seen[n] = p
+                visible.append(n)
+        if self.holding:
+            self.seen[self.holding] = self.sim.body_pos(self.holding)
+        return visible
+
+    def _describe(self, n: str, p: np.ndarray) -> dict:
+        fwd, left = self._to_robot_frame(p)
+        kind = "object" if n in self.objects else "bin" if n in self.bins else "table"
+        entry = {
+            "name": n,
+            "kind": kind,
+            "world_xyz": [round(float(v), 3) for v in p],
+            "forward_m": round(fwd, 2),
+            "left_m": round(left, 2),
+            "distance_m": round(float(np.hypot(fwd, left)), 2),
+        }
+        if kind == "object":
+            o = self.objects[n]
+            entry.update(color=o.color, shape=o.shape)
+        if kind != "table":
+            t = self._table_of(p)
+            entry["on"] = "gripper" if self.holding == n else (t.name if t else "floor")
+        return entry
+
+    def detect(self) -> dict:
+        """Items visible in the head camera now, plus remembered last-seen items."""
+        visible = self._observe()
+        items = [self._describe(n, self.seen[n]) for n in visible]
+        remembered = [self._describe(n, p) for n, p in self.seen.items() if n not in visible]
+        msg = f"{len(items)} items visible"
+        if remembered:
+            msg += f", {len(remembered)} remembered from earlier views"
+        return ok(msg, items=items, remembered=remembered)
+
+    def _require_seen(self, name: str) -> dict | None:
+        if name not in self.objects and name not in self.bins:
+            return fail(f"unknown item '{name}'. Known names come from detect().")
+        if name not in self.seen and name != self.holding:
+            return fail(f"{name} has not been seen yet; search with rotate() and detect() first")
+        return None
 
     # -------------------------------------------------------------- navigation
+    def search(self, name: str, step_deg: float = 45.0) -> dict:
+        """Turn in place in steps until `name` is in view (max one full turn)."""
+        if name not in self.objects and name not in self.bins and name not in self.tables:
+            return fail(f"unknown item '{name}'")
+        if name in self._observe():
+            return ok(f"{name} is in view", item=self._describe(name, self.seen[name]))
+        for _ in range(int(360 / step_deg)):
+            r = self.rotate(step_deg)
+            if not r["success"] and "fell" in r["message"]:
+                return r
+            if name in self._observe():
+                return ok(f"found {name}", item=self._describe(name, self.seen[name]))
+        return fail(f"{name} not visible from here after a full turn; move somewhere else and search again")
+
     def rotate(self, angle_deg: float) -> dict:
         b = self.sim.base_pose()
         return self.navigate_to(b.x, b.y, np.degrees(b.yaw) + angle_deg)
@@ -228,8 +273,9 @@ class Skills:
         pos_err = float(np.hypot(b.x - x, b.y - y))
         yaw_err = abs(np.degrees(wrap(np.radians(yaw_deg) - b.yaw))) if yaw_deg is not None else 0.0
         st = {"x": round(b.x, 3), "y": round(b.y, 3), "yaw_deg": round(np.degrees(b.yaw), 1)}
+        newly = self._observe()
         if pos_err < 0.12 and yaw_err < 8:
-            return ok("arrived", base=st, pos_err_m=round(pos_err, 3))
+            return ok("arrived", base=st, pos_err_m=round(pos_err, 3), now_visible=newly)
         return fail("did not reach goal (timeout)", base=st, pos_err_m=round(pos_err, 3))
 
     def standoff_pose(self, name: str) -> tuple[np.ndarray, float] | str:
@@ -263,6 +309,8 @@ class Skills:
 
     def approach(self, name: str) -> dict:
         """Drive to a manipulation pose in front of an object or bin."""
+        if (e := self._require_seen(name)) is not None:
+            return e
         sp = self.standoff_pose(name)
         if isinstance(sp, str):
             return fail(sp)
@@ -387,6 +435,8 @@ class Skills:
             return fail(f"unknown object '{name}'")
         if self.holding:
             return fail(f"already holding {self.holding}; place it first")
+        if (e := self._require_seen(name)) is not None:
+            return e
         p = self.sim.body_pos(name)
         if (e := self._reach_check(p, name)) is not None:
             return e
