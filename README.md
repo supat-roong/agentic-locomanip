@@ -54,7 +54,7 @@ ollama pull qwen3-vl:8b-instruct   # needs a recent Ollama (0.40+)
 uv run tron2-agent run --task red_to_bin --planner scripted --video   # no LLM, sanity check
 uv run tron2-agent run --task red_to_bin --video                      # qwen3-vl:8b-instruct
 uv run tron2-agent run --instruction "put the blue cube in the bin" --model gemma4:12b-it-qat
-uv run tron2-agent eval --task can_to_bin --episodes 5
+uv run tron2-agent eval --task two_cubes --episodes 3 --seed 10   # randomized start heading + object jitter
 uv run pytest
 ```
 
@@ -68,6 +68,17 @@ Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every t
 | `blue_to_bin` | Find the blue cube and put it in the bin. |
 | `can_to_bin` | Bring the green can to the bin. |
 | `two_cubes` | Put both cubes (red and blue) into the bin. |
+
+## Results
+
+`qwen3-vl:8b-instruct` on an M4 (16 GB), randomized scenes (`--seed`):
+
+| Task | Episodes | Success | Tool calls per episode | Wall time per episode |
+|---|---|---|---|---|
+| `two_cubes` | 3 (seeds 10-12) | 3/3 | 15-17 | 6-7 min |
+| `can_to_bin` (scripted planner, no LLM) | 4 (seeds 1-4) | 4/4 | 7 | ~9 s |
+
+Single default-scene runs of `red_to_bin`, `can_to_bin` and `two_cubes` also succeeded. Most of the wall time is model latency (about 18 s per call with an image attached).
 
 ## Models
 
