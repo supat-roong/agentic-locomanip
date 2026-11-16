@@ -25,9 +25,10 @@ You act ONLY by calling tools. Call one tool at a time and read its JSON result 
 
 World frame: x/y in metres on the floor, yaw in degrees (0 = +x, 90 = +y). Tables are 0.62 m high.
 Skills:
-- detect(): objects/bins/tables visible in the head camera, with world and robot-relative positions.
+- detect(): items visible in the head camera now, plus 'remembered' items seen earlier, with world and robot-relative positions.
 - look(camera): get a camera image ("head" or "wrist") to check the scene visually.
-- rotate(angle_deg): turn in place (positive = left). Use it to search when something is not visible.
+- search(name): turn in place until the named item is in view. Use it when an item is not visible or not remembered.
+- rotate(angle_deg): turn in place (positive = left).
 - navigate_to(x, y, yaw_deg): drive to a floor position. Fails if the straight path hits a table.
 - approach(name): drive to a manipulation pose in front of an object or bin (handles routing around tables).
 - pick(name): grasp an object; you must have called approach(name) first.
@@ -35,8 +36,9 @@ Skills:
 - get_state(), stow_arm(), open_gripper()
 - done(success, summary): call when the task is finished or impossible.
 
-Typical plan for "put X in the bin": detect -> (rotate to search if needed) -> approach X -> pick X -> approach bin -> place bin -> done.
-If a skill fails, read the message and recover (e.g. approach again, search with rotate). Never invent object names: use names returned by detect."""
+Typical plan for "put X in the bin": detect -> approach X -> pick X -> search bin (if not visible/remembered) -> approach bin -> place bin -> done.
+approach() plans its own route around tables, so prefer it over navigate_to.
+If a skill fails, read the message and recover (e.g. search, approach again). Do not repeat a call that just failed with the same arguments. Never invent names: use names returned by detect or search."""
 
 
 def _fn(name: str, desc: str, props: dict | None = None, required: list[str] | None = None) -> dict:
@@ -59,6 +61,7 @@ TOOLS = [
         {"camera": {"type": "string", "enum": ["head", "wrist"]}},
         ["camera"],
     ),
+    _fn("search", "Turn in place until the named item is in view.", {"name": {"type": "string"}}, ["name"]),
     _fn("rotate", "Turn in place by angle_deg (positive = counter-clockwise/left).", {"angle_deg": {"type": "number"}}, ["angle_deg"]),
     _fn(
         "navigate_to",
@@ -129,7 +132,16 @@ class ScriptedPlanner:
 
 
 def scripted_pick_place(obj: str, target: str = "bin") -> ScriptedPlanner:
-    return ScriptedPlanner([("detect", {}), ("approach", {"name": obj}), ("pick", {"name": obj}), ("approach", {"name": target}), ("place", {"target": target})])
+    return ScriptedPlanner(
+        [
+            ("search", {"name": obj}),
+            ("approach", {"name": obj}),
+            ("pick", {"name": obj}),
+            ("search", {"name": target}),
+            ("approach", {"name": target}),
+            ("place", {"target": target}),
+        ]
+    )
 
 
 # ---------------------------------------------------------------- validation
@@ -230,6 +242,8 @@ class AgentRunner:
                 return sk.detect()
             case "get_state":
                 return sk.get_state()
+            case "search":
+                return sk.search(str(a["name"]))
             case "rotate":
                 return sk.rotate(float(a["angle_deg"]))
             case "navigate_to":
@@ -266,6 +280,7 @@ class AgentRunner:
             first["images"] = self._image_msg("head", 0)["images"]
         msgs.append(first)
         llm_time, invalid, failed, nudges = 0.0, 0, 0, 0
+        fail_counts: dict[str, int] = {}
         claimed, summary, trace = None, "step limit reached", []
         step = 0
         for step in range(1, self.max_steps + 1):
@@ -310,6 +325,14 @@ class AgentRunner:
                 "skill_s": round(time.time() - t0, 2),
                 "sim_t": round(self.skills.sim.time, 1),
             }
+            if not result.get("success", False):
+                key = call.name + json.dumps(call.args, sort_keys=True)
+                fail_counts[key] = fail_counts.get(key, 0) + 1
+                if fail_counts[key] >= 2:
+                    result["hint"] = (
+                        f"this exact call has failed {fail_counts[key]} times; do something different "
+                        "(e.g. approach(name) to route around tables, or search(name))"
+                    )
             trace.append(rec)
             self._log(rec)
             msgs.append({"role": "tool", "tool_name": call.name, "content": json.dumps(result) + note})
@@ -317,7 +340,7 @@ class AgentRunner:
                 break
             if call.name == "look" and not err:
                 msgs.append(self._image_msg(call.args["camera"], step))
-            elif self.use_images and call.name in ("rotate", "navigate_to", "approach", "pick", "place"):
+            elif self.use_images and call.name in ("rotate", "search", "navigate_to", "approach", "pick", "place"):
                 msgs.append(self._image_msg("head", step))
             self._drop_old_images(msgs)
             if self.skills.sim.fallen():
