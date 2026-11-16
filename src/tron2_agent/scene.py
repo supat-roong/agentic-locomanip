@@ -50,7 +50,7 @@ class SceneCfg:
             Obj("green_can", "green", "cylinder", (0.022, 0.035), (2.05, 0.25), (0.1, 0.7, 0.2, 1)),
         ]
     )
-    bins: list[Bin] = field(default_factory=lambda: [Bin("bin", (0.0, 2.02))])
+    bins: list[Bin] = field(default_factory=lambda: [Bin("bin", (0.0, 1.95))])
 
 
 def _add_cameras(spec: mujoco.MjSpec) -> None:
