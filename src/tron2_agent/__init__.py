@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from tron2-agent!"
+"""Agentic nav + manipulation for LimX TRON2 WFYG in MuJoCo."""

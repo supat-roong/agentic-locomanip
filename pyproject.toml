@@ -1,13 +1,15 @@
 [project]
 name = "tron2-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Agentic nav + manipulation for LimX TRON2 WFYG in MuJoCo, planned by a local VLM via Ollama"
 readme = "README.md"
 authors = [
     { name = "supat-roong", email = "roongpraiwan.supat@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "imageio>=2.38.2",
+    "imageio-ffmpeg>=0.8.1",
     "mujoco>=4.0.1",
     "numpy>=2.5.5",
     "ollama>=0.6.3",
@@ -16,6 +18,12 @@ dependencies = [
     "pyyaml>=6.0.3",
     "scipy>=1.18.1",
 ]
+
+[project.scripts]
+tron2-agent = "tron2_agent.cli:main"
+
+[tool.ruff]
+line-length = 120
 
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]
