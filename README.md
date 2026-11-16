@@ -9,7 +9,7 @@ Agentic navigation and manipulation for the LimX TRON2 WFYG (wheel-legged base w
                    │  tool call (one per turn)            ▲ JSON result + head camera image
                    ▼                                       │
                Validator (schema, types, bounds) ──► Skills ┘
-                                                   │  detect / navigate_to / approach / pick / place ...
+                                                   │  detect / search / navigate_to / approach / pick / place ...
                                                    ▼
                Sim (MuJoCo, 1 kHz)
                  ├─ legs + wheels: LimX WF_TRON2A RL policy (ONNX, 50 Hz) taking (vx, wz) commands
@@ -22,7 +22,7 @@ The planner never outputs motor commands. It sequences coarse skills, and each s
 
 **Locomotion.** The legs run the pretrained `WF_TRON2A` policy from `limxdynamics/tron2_rl_deploy_python`. It was trained without an arm. It still balances the WFYG body (about 7 kg heavier), but the base drifts when the arm reaches out. A position-hold loop counters this during manipulation.
 
-**Perception.** `detect()` uses simulator ground truth, filtered to items inside the head camera's field of view, so the planner still has to search. Camera images go to the model for visual context only.
+**Perception.** `detect()` uses simulator ground truth, filtered to items inside the head camera's field of view. Items seen earlier are remembered, and `approach` refuses items that have never been seen, so the planner still has to search (`search(name)` turns in place until the item is in view). Camera images go to the model for visual context only.
 
 **Manipulation.** Grasps are top-down. The arm reaches from 0.60 to 1.10 m high and 0.18 to 0.55 m in front of the base. `approach()` puts the base about 0.38 m from the target, square to the nearest table edge.
 
