@@ -14,8 +14,11 @@ import json
 import time
 from dataclasses import asdict
 
+import numpy as np
+
 from .agent import AgentRunner, OllamaPlanner, scripted_pick_place
 from .paths import RUNS
+from .scene import randomized_cfg
 from .sim import Sim
 from .skills import Skills
 from .tasks import TASKS
@@ -40,9 +43,13 @@ class VideoRecorder:
         self.w.close()
 
 
-def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True) -> dict:
+def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True, seed: int | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
-    sim = Sim()
+    if seed is None:
+        sim = Sim()
+    else:  # random start heading + jittered objects
+        yaw = float(np.random.default_rng(seed + 1000).uniform(-np.pi, np.pi))
+        sim = Sim(randomized_cfg(seed), start_yaw=yaw)
     rec = VideoRecorder(out_dir / "video.mp4") if args.video else None
     skills = Skills(sim, on_tick=rec)
     if args.planner == "scripted":
@@ -62,6 +69,7 @@ def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True
         model=args.model if args.planner == "ollama" else "scripted",
         task=task_name,
         task_success=task.check(sim) if task else None,
+        seed=seed,
     )
     (out_dir / "result.json").write_text(json.dumps(out, indent=2, default=str))
     sim.close()
@@ -82,6 +90,7 @@ def main() -> None:
         p.add_argument("--max-steps", type=int, default=30)
         p.add_argument("--no-images", action="store_true", help="text-only observations")
         p.add_argument("--video", action="store_true", help="record robot-tracking video (video.mp4)")
+        p.add_argument("--seed", type=int, default=None, help="randomize start heading and object positions")
         if name == "eval":
             p.add_argument("--episodes", type=int, default=5)
     args = ap.parse_args()
@@ -92,16 +101,17 @@ def main() -> None:
     tag = args.model.replace(":", "_").replace("/", "_") if args.planner == "ollama" else "scripted"
     if args.cmd == "run":
         out_dir = RUNS / f"{stamp}_{task_name}_{tag}"
-        out = episode(args, instruction, task_name, out_dir)
+        out = episode(args, instruction, task_name, out_dir, seed=args.seed)
         print(json.dumps(out, indent=2, default=str))
         print(f"logs: {out_dir}")
     else:
         rows = []
         for i in range(args.episodes):
             out_dir = RUNS / f"{stamp}_eval_{task_name}_{tag}" / f"ep{i:02d}"
-            out = episode(args, instruction, task_name, out_dir, verbose=False)
+            seed = None if args.seed is None else args.seed + i
+            out = episode(args, instruction, task_name, out_dir, verbose=False, seed=seed)
             rows.append(out)
-            print(f"ep{i}: task_success={out['task_success']} claimed={out['success_claimed']} steps={out['steps']} "
+            print(f"ep{i} seed={seed}: task_success={out['task_success']} claimed={out['success_claimed']} steps={out['steps']} "
                   f"llm={out['llm_time_s']:.0f}s wall={out['wall_time_s']:.0f}s invalid={out['invalid_calls']} :: {out['summary'][:80]}")
         sr = sum(bool(r["task_success"]) for r in rows) / len(rows)
         print(f"success rate {sr:.0%} over {len(rows)} episodes")

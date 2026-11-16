@@ -26,7 +26,8 @@ class BasePose:
 
 
 class Sim:
-    def __init__(self, cfg: SceneCfg | None = None, render_size=(480, 640)):
+    def __init__(self, cfg: SceneCfg | None = None, render_size=(480, 640), start_yaw: float = 0.0):
+        self.start_yaw = start_yaw
         check_assets()
         self.model, self.cfg = build_model(cfg)
         self.m = self.model
@@ -53,6 +54,7 @@ class Sim:
     def reset(self) -> None:
         mujoco.mj_resetData(self.m, self.d)
         self.d.qpos[self.arm_q] = STOW_Q
+        self.d.qpos[3:7] = [np.cos(self.start_yaw / 2), 0, 0, np.sin(self.start_yaw / 2)]
         mujoco.mj_forward(self.m, self.d)
         wheel = self.m.body("wheel_L_Link").id
         r = max(

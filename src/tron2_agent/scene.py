@@ -53,6 +53,19 @@ class SceneCfg:
     bins: list[Bin] = field(default_factory=lambda: [Bin("bin", (0.0, 1.95))])
 
 
+def randomized_cfg(seed: int) -> SceneCfg:
+    """Default layout with object positions jittered (staying within arm reach of the table edge)."""
+    import dataclasses
+
+    rng = np.random.default_rng(seed)
+    cfg = SceneCfg()
+    cfg.objects = [
+        dataclasses.replace(o, pos=(o.pos[0] + rng.uniform(-0.03, 0.03), o.pos[1] + rng.uniform(-0.05, 0.05)))
+        for o in cfg.objects
+    ]
+    return cfg
+
+
 def _add_cameras(spec: mujoco.MjSpec) -> None:
     th = np.radians(HEAD_PITCH_DEG)
     base = spec.body("base_Link")
