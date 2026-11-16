@@ -25,7 +25,7 @@ SCRIPTED_OBJ = {"red_to_bin": "red_cube", "blue_to_bin": "blue_cube", "can_to_bi
 
 
 class VideoRecorder:
-    def __init__(self, path, fps: int = 15, camera: str = "overview"):
+    def __init__(self, path, fps: int = 15, camera: str = "track"):
         import imageio.v2 as imageio
 
         self.w = imageio.get_writer(str(path), fps=fps, macro_block_size=8)
@@ -43,7 +43,7 @@ class VideoRecorder:
 def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     sim = Sim()
-    rec = VideoRecorder(out_dir / "overview.mp4") if args.video else None
+    rec = VideoRecorder(out_dir / "video.mp4") if args.video else None
     skills = Skills(sim, on_tick=rec)
     if args.planner == "scripted":
         if task_name not in SCRIPTED_OBJ:
@@ -81,7 +81,7 @@ def main() -> None:
         p.add_argument("--think", action=argparse.BooleanOptionalAction, default=None)
         p.add_argument("--max-steps", type=int, default=30)
         p.add_argument("--no-images", action="store_true", help="text-only observations")
-        p.add_argument("--video", action="store_true", help="record overview.mp4")
+        p.add_argument("--video", action="store_true", help="record robot-tracking video (video.mp4)")
         if name == "eval":
             p.add_argument("--episodes", type=int, default=5)
     args = ap.parse_args()
