@@ -60,3 +60,37 @@ def test_approach_requires_seen_item(sim):
     sim.reset()
     r = Skills(sim).approach("bin")
     assert not r["success"] and "not been seen" in r["message"]
+
+
+def test_navigate_to_rejects_points_on_a_table(sim):
+    from tron2_agent.skills import Skills
+
+    sim.reset()
+    sk = Skills(sim)
+    r = sk.navigate_to(1.82, 0.10)  # red cube's position, on table_A
+    assert not r["success"] and "table_A" in r["message"] and "x 1.70..2.30" in r["message"]
+    assert abs(sim.base_pose().x) < 0.1  # rejected before moving
+
+
+def test_navigate_to_routes_around_table(sim):
+    from tron2_agent.skills import Skills
+
+    sim.reset()
+    sk = Skills(sim)
+    r = sk.navigate_to(2.0, 0.9)  # beside table_A; the straight path clips its corner
+    assert r["success"], r
+    p = sim.base_pose()
+    assert np.hypot(p.x - 2.0, p.y - 0.9) < 0.12 and not sim.fallen()
+
+
+def test_navigate_to_edge_pose_then_pick(sim):
+    """The planner's job without approach(): stand 0.4 m out from the nearest edge, then pick."""
+    from tron2_agent.skills import Skills
+
+    sim.reset()
+    sk = Skills(sim)
+    sk.detect()
+    r = sk.navigate_to(1.42, 0.10, 0.0)  # red cube at (1.82, 0.10), table edge x = 1.70
+    assert r["success"], r
+    r = sk.pick("red_cube")
+    assert r["success"], r

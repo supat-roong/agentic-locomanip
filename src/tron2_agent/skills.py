@@ -20,6 +20,7 @@ CTRL_DT = 0.02  # skill control tick (s)
 STANDOFF = 0.38  # base-to-item distance for manipulation
 EDGE_CLEAR = 0.20  # min base-to-table-edge distance
 ROBOT_RADIUS = 0.35
+NEAR_EDGE_MIN = 0.15  # closest the base centre may stop to a table edge
 TOPDOWN = np.array([0.0, 0.0, -1.0])
 IK_SEEDS = [
     np.array([0.0, 1.2, -1.0, 0.0, 0.8, 0.0]),
@@ -190,7 +191,10 @@ class Skills:
         if kind == "object":
             o = self.objects[n]
             entry.update(color=o.color, shape=o.shape)
-        if kind != "table":
+        if kind == "table":
+            entry["x_range"] = [round(float(p[0]) - TABLE_HALF[0], 2), round(float(p[0]) + TABLE_HALF[0], 2)]
+            entry["y_range"] = [round(float(p[1]) - TABLE_HALF[1], 2), round(float(p[1]) + TABLE_HALF[1], 2)]
+        else:
             t = self._table_of(p)
             entry["on"] = "gripper" if self.holding == n else (t.name if t else "floor")
         return entry
@@ -231,13 +235,75 @@ class Skills:
         b = self.sim.base_pose()
         return self.navigate_to(b.x, b.y, np.degrees(b.yaw) + angle_deg)
 
+    def _near_table(self, p: np.ndarray):
+        """(table, outward edge normal, distance to that edge) if p is inside a table's inflated zone."""
+        hx, hy = TABLE_HALF[0] + ROBOT_RADIUS - 0.05, TABLE_HALF[1] + ROBOT_RADIUS - 0.05
+        for t in self.tables.values():
+            if self._box_dist(p, t.pos, hx, hy) < 0:
+                dx, dy = p[0] - t.pos[0], p[1] - t.pos[1]
+                ex, ey = abs(dx) - TABLE_HALF[0], abs(dy) - TABLE_HALF[1]
+                if ex >= ey:
+                    return t, np.array([np.sign(dx) or 1.0, 0.0]), ex
+                return t, np.array([0.0, np.sign(dy) or 1.0]), ey
+        return None
+
     def navigate_to(self, x: float, y: float, yaw_deg: float | None = None, tol: float = 0.05) -> dict:
-        self._hold = None
+        """Drive to a floor point, routing around tables.
+
+        Goals next to a table edge (manipulation poses) are allowed down to
+        NEAR_EDGE_MIN from the edge: the robot routes to a point straight out
+        from that edge, then drives in perpendicular to it.
+        """
         b = self.sim.base_pose()
         start, goal = np.array([b.x, b.y]), np.array([x, y], float)
-        hit = self._segment_hits_table(start, goal) if np.linalg.norm(goal - start) > tol else None
-        if hit:
-            return fail(f"straight path to ({x:.2f},{y:.2f}) collides with {hit}; pick an intermediate waypoint")
+        if np.linalg.norm(goal - start) <= tol:
+            return self._drive_to(goal, yaw_deg, tol)
+        for t in self.tables.values():
+            if self._box_dist(goal, t.pos, *TABLE_HALF) < NEAR_EDGE_MIN:
+                return fail(
+                    f"({x:.2f},{y:.2f}) is on {t.name} or closer than {NEAR_EDGE_MIN:.2f} m to its edge "
+                    f"({t.name} spans x {t.pos[0] - TABLE_HALF[0]:.2f}..{t.pos[0] + TABLE_HALF[0]:.2f}, "
+                    f"y {t.pos[1] - TABLE_HALF[1]:.2f}..{t.pos[1] + TABLE_HALF[1]:.2f}). "
+                    "Stand on the floor 0.15-0.30 m outside an edge instead."
+                )
+        near = self._near_table(goal)
+        final = goal
+        if near is not None:  # manipulation pose: come in straight from outside the edge
+            t, n, _ = near
+            goal = goal + n * 0.45  # pre-pose 0.45 m straight out, room to correct drift on the way in
+        if np.linalg.norm(goal - start) > tol and (hit := self._segment_hits_table(start, goal)):
+            wp = self._detour(start, goal)
+            if wp is None:
+                return fail(f"no collision-free route to ({x:.2f},{y:.2f}) around {hit}")
+            r = self._drive_to(wp, None, tol)
+            if not r["success"]:
+                return r
+        if near is None:
+            return self._drive_to(goal, yaw_deg, tol)
+        r = self._drive_to(goal, float(np.degrees(np.arctan2(-n[1], -n[0]))), 0.06)
+        if not r["success"]:
+            return r
+        r = self._drive_straight_to(final, float(np.arctan2(-n[1], -n[0])))
+        if not r["success"]:
+            return r
+        if yaw_deg is not None and abs(wrap(np.radians(yaw_deg) - self.sim.base_pose().yaw)) > np.radians(4):
+            r = self._drive_to(final, yaw_deg, 0.5)
+            if not r["success"]:
+                return r
+        self._hold_here()
+        b = self.sim.base_pose()
+        st = {"x": round(b.x, 3), "y": round(b.y, 3), "yaw_deg": round(np.degrees(b.yaw), 1)}
+        pos_err = float(np.hypot(b.x - x, b.y - y))
+        if pos_err > 0.12:
+            return fail("did not reach goal next to the table", base=st, pos_err_m=round(pos_err, 3))
+        return ok(f"arrived next to {t.name}", base=st, pos_err_m=round(pos_err, 3), now_visible=self._observe())
+
+    def _drive_to(self, goal: np.ndarray, yaw_deg: float | None, tol: float) -> dict:
+        """Turn-drive-align to a floor point with no collision checks (callers route first)."""
+        self._hold = None
+        x, y = float(goal[0]), float(goal[1])
+        b = self.sim.base_pose()
+        start = np.array([b.x, b.y])
         dist0 = float(np.linalg.norm(goal - start))
         max_ticks = int((8.0 + 5.0 * dist0) / CTRL_DT)
         phase = "drive" if dist0 > tol else "align"
@@ -426,7 +492,7 @@ class Skills:
         if not (0.18 <= fwd <= 0.55 and abs(left) <= 0.25):
             return fail(
                 f"{name} is out of arm reach (forward={fwd:.2f} m, left={left:.2f} m); "
-                "reach needs forward 0.18-0.55 m and |left| <= 0.25 m. Call approach first."
+                "reach needs forward 0.18-0.55 m and |left| <= 0.25 m. Move the base so the item is about 0.4 m straight ahead."
             )
         return None
 
@@ -448,7 +514,7 @@ class Skills:
         pre = p + np.array([0, 0, half_h + 0.12])
         grasp = p + np.array([0, 0, max(0.0, half_h - 0.025)])
         if self._solve(pre, fa) is None or self._solve(grasp, fa) is None:
-            return fail(f"no IK solution to grasp {name} from here; re-approach")
+            return fail(f"no IK solution to grasp {name} from here; reposition the base")
         self.sim.grip_target = GRIPPER_OPEN
         q_pre = self._solve(pre, fa).q
         if not self._move_joints(q_pre):
@@ -490,7 +556,7 @@ class Skills:
             b = self.sim.base_pose()
             p = np.array([b.x + 0.42 * np.cos(b.yaw), b.y + 0.42 * np.sin(b.yaw), TABLE_H + 0.08])
             if self._table_of(p) is None:
-                return fail(f"no {target} surface in front of the robot; approach it first")
+                return fail(f"no {target} surface in front of the robot; navigate next to it first")
         if (e := self._reach_check(p, target)) is not None:
             return e
         if self._hold is None:
@@ -499,7 +565,7 @@ class Skills:
         fa = np.array([-np.sin(b.yaw), np.cos(b.yaw), 0.0])
         sol = self._solve(p, fa)
         if sol is None:
-            return fail(f"no IK solution to place into {target} from here; re-approach")
+            return fail(f"no IK solution to place into {target} from here; reposition the base")
         if not self._move_joints(sol.q, speed=0.8):
             return fail("robot fell over")
         r = self._servo_ee(p, fa, speed=0.1)
