@@ -196,6 +196,20 @@ class Skills:
             entry["y_range"] = [round(float(p[1]) - TABLE_HALF[1], 2), round(float(p[1]) + TABLE_HALF[1], 2)]
         else:
             t = self._table_of(p)
+            if t is not None and self.holding != n:
+                tx, ty = t.pos
+                edges = {
+                    "x_min": (p[0] - (tx - TABLE_HALF[0]), f"x = {tx - TABLE_HALF[0]:.2f}"),
+                    "x_max": ((tx + TABLE_HALF[0]) - p[0], f"x = {tx + TABLE_HALF[0]:.2f}"),
+                    "y_min": (p[1] - (ty - TABLE_HALF[1]), f"y = {ty - TABLE_HALF[1]:.2f}"),
+                    "y_max": ((ty + TABLE_HALF[1]) - p[1], f"y = {ty + TABLE_HALF[1]:.2f}"),
+                }
+                side = min(edges, key=lambda k: edges[k][0])
+                entry["closest_table_edge"] = {
+                    "side": side,
+                    "edge": edges[side][1],
+                    "item_to_edge_m": round(float(edges[side][0]), 2),
+                }
             entry["on"] = "gripper" if self.holding == n else (t.name if t else "floor")
         return entry
 
