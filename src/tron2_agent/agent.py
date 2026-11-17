@@ -8,6 +8,7 @@ local model only has to sequence them.
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import time
@@ -82,6 +83,23 @@ TOOLS = [
     ),
 ]
 TOOL_SCHEMAS = {t["function"]["name"]: t["function"]["parameters"] for t in TOOLS}
+
+EXPLAIN_PROMPT = (
+    "\nEvery tool has a 'reason' argument: fill it with one short sentence explaining why this call is the right next step."
+)
+
+
+def with_reason(tools: list[dict]) -> list[dict]:
+    """Copy of the tool list where every tool takes a required 'reason' string (for demos and debugging)."""
+    out = copy.deepcopy(tools)
+    for t in out:
+        params = t["function"]["parameters"]
+        params["properties"]["reason"] = {
+            "type": "string",
+            "description": "One short sentence: why this call is the right next step.",
+        }
+        params["required"] = [*params["required"], "reason"]
+    return out
 
 
 @dataclass
@@ -213,8 +231,11 @@ class AgentRunner:
         use_images: bool = True,
         log_dir: Path | None = None,
         verbose: bool = True,
+        explain: bool = False,
     ):
         self.skills, self.planner = skills, planner
+        self.explain = explain
+        self.tools = with_reason(TOOLS) if explain else TOOLS
         self.max_steps, self.max_sim_s = max_steps, max_sim_s
         self.use_images, self.log_dir, self.verbose = use_images, log_dir, verbose
         if log_dir:
@@ -274,7 +295,7 @@ class AgentRunner:
 
     def run(self, instruction: str) -> EpisodeResult:
         t_wall = time.time()
-        msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT + (EXPLAIN_PROMPT if self.explain else "")}]
         first = {"role": "user", "content": f"Task: {instruction}\nCurrent state: {json.dumps(self.skills.get_state())}"}
         if self.use_images:
             first["images"] = self._image_msg("head", 0)["images"]
@@ -284,11 +305,13 @@ class AgentRunner:
         claimed, summary, trace = None, "step limit reached", []
         step = 0
         for step in range(1, self.max_steps + 1):
-            reply = self.planner(msgs, TOOLS)
+            reply = self.planner(msgs, self.tools)
             llm_time += reply.latency_s
             assistant = {"role": "assistant", "content": reply.content}
             if reply.tool_calls:
-                assistant["tool_calls"] = [{"function": {"name": c.name, "arguments": c.args}} for c in reply.tool_calls]
+                assistant["tool_calls"] = [
+                    {"function": {"name": c.name, "arguments": dict(c.args)}} for c in reply.tool_calls
+                ]
             msgs.append(assistant)
             if not reply.tool_calls:
                 nudges += 1
@@ -303,8 +326,9 @@ class AgentRunner:
                 note = f" (only the first of {len(reply.tool_calls)} tool calls was executed; call one tool at a time)"
             else:
                 note = ""
+            reason = str(call.args.pop("reason", "") or "")
             err = validate_call(call)
-            t0 = time.time()
+            t0, sim_t0 = time.time(), self.skills.sim.time
             if err:
                 invalid += 1
                 result = {"success": False, "message": "invalid call: " + err}
@@ -320,10 +344,12 @@ class AgentRunner:
                 "tool": call.name,
                 "args": call.args,
                 "result": result,
+                "reason": reason,
                 "thought": reply.content[:500],
                 "llm_s": round(reply.latency_s, 2),
                 "skill_s": round(time.time() - t0, 2),
-                "sim_t": round(self.skills.sim.time, 1),
+                "sim_t0": round(sim_t0, 3),
+                "sim_t": round(self.skills.sim.time, 3),
             }
             if not result.get("success", False):
                 key = call.name + json.dumps(call.args, sort_keys=True)
