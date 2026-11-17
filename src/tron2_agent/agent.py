@@ -38,10 +38,13 @@ Skills:
 - done(success, summary): call when the task is finished or impossible.
 
 The arm can only reach over a table edge, so to pick or place you must work out where to stand:
-1. Get the item's world_xyz and its table's x_range / y_range from detect.
-2. Choose the table edge closest to the item.
-3. Stand 0.40 m from the item, straight out from that edge, facing the item.
-Example: item at (1.85, 0.05) on a table with x_range [1.70, 2.30], y_range [-0.45, 0.45]. The closest edge is x = 1.70, so navigate_to(x=1.45, y=0.05, yaw_deg=0), then pick.
+1. Get the item's world_xyz (ix, iy) and its table's x_range [x0, x1] and y_range [y0, y1] from detect.
+2. Compute the item's distance to all four edges: ix - x0, x1 - ix, iy - y0, y1 - iy. The smallest one is the closest edge.
+3. Stand 0.40 m from the item, straight out past that edge, facing the item:
+   closest x0: (ix - 0.40, iy), yaw 0     closest x1: (ix + 0.40, iy), yaw 180
+   closest y0: (ix, iy - 0.40), yaw 90    closest y1: (ix, iy + 0.40), yaw -90
+Example A: item (3.15, -1.00), x_range [3.00, 3.60], y_range [-1.45, -0.55]. Distances 0.15, 0.45, 0.45, 0.45, so x0 is closest: navigate_to(x=2.75, y=-1.00, yaw_deg=0).
+Example B: item (-1.00, 3.10), x_range [-1.30, -0.70], y_range [2.90, 3.80]. Distances 0.30, 0.30, 0.20, 0.70, so y0 is closest: navigate_to(x=-1.00, y=2.70, yaw_deg=90).
 The robot holds one object at a time. Plan for "put X in the bin": detect -> navigate next to X -> pick X -> search bin (if not visible or remembered) -> navigate next to the bin -> place bin. For several objects, repeat this for each one, then call done.
 If a skill fails, read the message and recover; positions in the message tell you how far off you are. Do not repeat a call that just failed with the same arguments. Never invent names: use names returned by detect or search."""
 
