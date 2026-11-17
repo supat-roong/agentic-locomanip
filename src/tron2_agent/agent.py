@@ -12,6 +12,7 @@ import copy
 import io
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -26,20 +27,22 @@ You act ONLY by calling tools. Call one tool at a time and read its JSON result 
 
 World frame: x/y in metres on the floor, yaw in degrees (0 = +x, 90 = +y). Tables are 0.62 m high.
 Skills:
-- detect(): items visible in the head camera now, plus 'remembered' items seen earlier, with world and robot-relative positions.
+- detect(): items visible in the head camera now, plus 'remembered' items seen earlier. Objects and the bin give world_xyz and the table they are 'on'; tables give their x_range and y_range.
 - look(camera): get a camera image ("head" or "wrist") to check the scene visually.
 - search(name): turn in place until the named item is in view. Use it when an item is not visible or not remembered.
 - rotate(angle_deg): turn in place (positive = left).
-- navigate_to(x, y, yaw_deg): drive to a floor position. Fails if the straight path hits a table.
-- approach(name): drive to a manipulation pose in front of an object or bin (handles routing around tables).
-- pick(name): grasp an object; you must have called approach(name) first.
-- place(target): put the held object into a bin; call approach(target) first.
+- navigate_to(x, y, yaw_deg): drive to a floor point and face yaw_deg. It routes around tables by itself. The point must be on the floor, at least 0.15 m outside every table edge.
+- pick(name): grasp an object. The robot must stand with the object about 0.4 m straight ahead (reach: 0.18-0.55 m forward, at most 0.25 m sideways).
+- place(target): put the held object into the bin. Same reach rule as pick.
 - get_state(), stow_arm(), open_gripper()
 - done(success, summary): call when the task is finished or impossible.
 
-Typical plan for "put X in the bin": detect -> approach X -> pick X -> search bin (if not visible/remembered) -> approach bin -> place bin -> done.
-approach() plans its own route around tables, so prefer it over navigate_to.
-If a skill fails, read the message and recover (e.g. search, approach again). Do not repeat a call that just failed with the same arguments. Never invent names: use names returned by detect or search."""
+The arm can only reach over a table edge, so to pick or place you must work out where to stand:
+1. Get the item's world_xyz and its table's x_range / y_range from detect.
+2. Choose the table edge closest to the item.
+3. Stand 0.40 m from the item, straight out from that edge, facing the item.
+Example: item at (1.85, 0.05) on a table with x_range [1.70, 2.30], y_range [-0.45, 0.45]. The closest edge is x = 1.70, so navigate_to(x=1.45, y=0.05, yaw_deg=0), then pick.
+If a skill fails, read the message and recover; positions in the message tell you how far off you are. Do not repeat a call that just failed with the same arguments. Never invent names: use names returned by detect or search."""
 
 
 def _fn(name: str, desc: str, props: dict | None = None, required: list[str] | None = None) -> dict:
@@ -66,13 +69,12 @@ TOOLS = [
     _fn("rotate", "Turn in place by angle_deg (positive = counter-clockwise/left).", {"angle_deg": {"type": "number"}}, ["angle_deg"]),
     _fn(
         "navigate_to",
-        "Drive to world position (x, y) and optionally face yaw_deg.",
+        "Drive to a floor point (x, y) and face yaw_deg; routes around tables. Must be at least 0.15 m outside table edges.",
         {"x": {"type": "number"}, "y": {"type": "number"}, "yaw_deg": {"type": "number"}},
         ["x", "y"],
     ),
-    _fn("approach", "Drive to a manipulation pose in front of an object or bin.", {"name": {"type": "string"}}, ["name"]),
-    _fn("pick", "Grasp and lift an object (must approach it first).", {"name": {"type": "string"}}, ["name"]),
-    _fn("place", "Place the held object into a bin (must approach the bin first).", {"target": {"type": "string"}}, ["target"]),
+    _fn("pick", "Grasp and lift an object about 0.4 m straight ahead of the robot.", {"name": {"type": "string"}}, ["name"]),
+    _fn("place", "Place the held object into a bin about 0.4 m straight ahead of the robot.", {"target": {"type": "string"}}, ["target"]),
     _fn("stow_arm", "Move the arm to its stowed pose."),
     _fn("open_gripper", "Open the gripper (drops anything held)."),
     _fn(
@@ -139,24 +141,36 @@ class OllamaPlanner:
 class ScriptedPlanner:
     """Deterministic baseline/test double: replays a fixed tool sequence."""
 
-    def __init__(self, calls: list[tuple[str, dict]]):
+    def __init__(self, calls: list[tuple[str, dict | Callable[[], dict]]]):
         self.calls = list(calls)
 
     def __call__(self, messages, tools) -> PlannerReply:
         if not self.calls:
             return PlannerReply("", [ToolCall("done", {"success": True, "summary": "script finished"})])
         name, args = self.calls.pop(0)
-        return PlannerReply("", [ToolCall(name, args)])
+        return PlannerReply("", [ToolCall(name, args() if callable(args) else dict(args))])
 
 
-def scripted_pick_place(obj: str, target: str = "bin") -> ScriptedPlanner:
+def scripted_pick_place(skills: Skills, obj: str, target: str = "bin") -> ScriptedPlanner:
+    """Baseline that knows the geometry: stands at Skills.standoff_pose of each item."""
+
+    def stand_at(name: str):
+        def args() -> dict:
+            sp = skills.standoff_pose(name)
+            if isinstance(sp, str):
+                raise RuntimeError(sp)
+            (x, y), yaw = sp
+            return {"x": float(x), "y": float(y), "yaw_deg": float(np.degrees(yaw))}
+
+        return args
+
     return ScriptedPlanner(
         [
             ("search", {"name": obj}),
-            ("approach", {"name": obj}),
+            ("navigate_to", stand_at(obj)),
             ("pick", {"name": obj}),
             ("search", {"name": target}),
-            ("approach", {"name": target}),
+            ("navigate_to", stand_at(target)),
             ("place", {"target": target}),
         ]
     )
@@ -269,8 +283,6 @@ class AgentRunner:
                 return sk.rotate(float(a["angle_deg"]))
             case "navigate_to":
                 return sk.navigate_to(float(a["x"]), float(a["y"]), a.get("yaw_deg"))
-            case "approach":
-                return sk.approach(str(a["name"]))
             case "pick":
                 return sk.pick(str(a["name"]))
             case "place":
@@ -302,6 +314,7 @@ class AgentRunner:
         msgs.append(first)
         llm_time, invalid, failed, nudges = 0.0, 0, 0, 0
         fail_counts: dict[str, int] = {}
+        tool_fail_streak: dict[str, int] = {}
         claimed, summary, trace = None, "step limit reached", []
         step = 0
         for step in range(1, self.max_steps + 1):
@@ -354,11 +367,14 @@ class AgentRunner:
             if not result.get("success", False):
                 key = call.name + json.dumps(call.args, sort_keys=True)
                 fail_counts[key] = fail_counts.get(key, 0) + 1
-                if fail_counts[key] >= 2:
+                tool_fail_streak[call.name] = tool_fail_streak.get(call.name, 0) + 1
+                if fail_counts[key] >= 2 or tool_fail_streak[call.name] >= 2:
                     result["hint"] = (
-                        f"this exact call has failed {fail_counts[key]} times; do something different "
-                        "(e.g. approach(name) to route around tables, or search(name))"
+                        f"{call.name} has failed {tool_fail_streak[call.name]} times in a row; stop using it this way "
+                        "and do something different (re-check positions with detect and recompute where to stand, or search(name))"
                     )
+            elif call.name != "done":
+                tool_fail_streak[call.name] = 0
             trace.append(rec)
             self._log(rec)
             msgs.append({"role": "tool", "tool_name": call.name, "content": json.dumps(result) + note})
@@ -366,7 +382,7 @@ class AgentRunner:
                 break
             if call.name == "look" and not err:
                 msgs.append(self._image_msg(call.args["camera"], step))
-            elif self.use_images and call.name in ("rotate", "search", "navigate_to", "approach", "pick", "place"):
+            elif self.use_images and call.name in ("rotate", "search", "navigate_to", "pick", "place"):
                 msgs.append(self._image_msg("head", step))
             self._drop_old_images(msgs)
             if self.skills.sim.fallen():

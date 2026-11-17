@@ -62,7 +62,7 @@ def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True
     if args.planner == "scripted":
         if task_name not in SCRIPTED_OBJ:
             raise SystemExit(f"scripted planner supports tasks {list(SCRIPTED_OBJ)}")
-        planner = scripted_pick_place(SCRIPTED_OBJ[task_name])
+        planner = scripted_pick_place(skills, SCRIPTED_OBJ[task_name])
     else:
         planner = OllamaPlanner(args.model, host=args.host, think=args.think)
     runner = AgentRunner(

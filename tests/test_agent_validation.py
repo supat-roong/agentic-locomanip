@@ -45,6 +45,6 @@ def test_with_reason_adds_required_reason_to_every_tool():
 def test_demo_call_str():
     from tron2_agent.demo import _call_str
 
-    assert _call_str("approach", {"name": "bin"}) == 'approach(name="bin")'
+    assert _call_str("pick", {"name": "bin"}) == 'pick(name="bin")'
     assert _call_str("rotate", {"angle_deg": 45.0}) == "rotate(angle_deg=45)"
     assert _call_str("done", {"success": True, "summary": "x"}) == "done(success=true)"
