@@ -80,6 +80,19 @@ def _add_cameras(spec: mujoco.MjSpec) -> None:
     spec.body("gripper_base_Link").add_camera(
         name="wrist", pos=[-0.07, 0.0, 0.0], xyaxes=[0, -1, 0, -1, 0, 0], fovy=80
     )
+    # Chase camera for videos: fixed world-frame offset from the robot, three-quarter view.
+    # (The MJCF's own "track" camera follows the whole scene's COM, so tables pull it off the robot.)
+    offset = np.array([-1.5, -1.5, 0.55])
+    fwd = -offset / np.linalg.norm(offset)
+    right = np.cross(fwd, [0, 0, 1])
+    right /= np.linalg.norm(right)
+    base.add_camera(
+        name="follow",
+        mode=mujoco.mjtCamLight.mjCAMLIGHT_TRACKCOM,
+        pos=offset.tolist(),
+        xyaxes=[*right, *np.cross(right, fwd)],
+        fovy=55,
+    )
     spec.worldbody.add_camera(
         name="overview", pos=[-1.6, -1.6, 3.0], xyaxes=[0.707, -0.707, 0, 0.45, 0.45, 0.77], fovy=60
     )

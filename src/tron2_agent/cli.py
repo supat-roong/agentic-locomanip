@@ -28,7 +28,7 @@ SCRIPTED_OBJ = {"red_to_bin": "red_cube", "blue_to_bin": "blue_cube", "can_to_bi
 
 
 class VideoRecorder:
-    def __init__(self, path, fps: int = 15, camera: str = "track"):
+    def __init__(self, path, fps: int = 15, camera: str = "follow"):
         import imageio.v2 as imageio
 
         self.w = imageio.get_writer(str(path), fps=fps, macro_block_size=8)
