@@ -30,3 +30,21 @@ def test_old_images_dropped():
     msgs = [{"role": "user", "content": "a", "images": [b"1"]}, {"role": "user", "content": "b", "images": [b"2"]}]
     AgentRunner._drop_old_images(msgs, keep=1)
     assert "images" not in msgs[0] and msgs[1]["images"] == [b"2"]
+
+
+def test_with_reason_adds_required_reason_to_every_tool():
+    from tron2_agent.agent import TOOLS, with_reason
+
+    tools = with_reason(TOOLS)
+    for t in tools:
+        params = t["function"]["parameters"]
+        assert "reason" in params["properties"] and "reason" in params["required"]
+    assert "reason" not in TOOLS[0]["function"]["parameters"]["properties"]  # original untouched
+
+
+def test_demo_call_str():
+    from tron2_agent.demo import _call_str
+
+    assert _call_str("approach", {"name": "bin"}) == 'approach(name="bin")'
+    assert _call_str("rotate", {"angle_deg": 45.0}) == "rotate(angle_deg=45)"
+    assert _call_str("done", {"success": True, "summary": "x"}) == "done(success=true)"

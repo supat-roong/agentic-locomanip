@@ -5,6 +5,7 @@
   tron2-agent run --instruction "put the blue cube in the bin"
   tron2-agent run --task red_to_bin --planner scripted    # no LLM baseline
   tron2-agent eval --task red_to_bin --episodes 5
+  tron2-agent run --task two_cubes --video --explain && tron2-agent demo runs/<dir>
 """
 
 from __future__ import annotations
@@ -31,16 +32,22 @@ class VideoRecorder:
     def __init__(self, path, fps: int = 15, camera: str = "follow"):
         import imageio.v2 as imageio
 
+        self.path = path
         self.w = imageio.get_writer(str(path), fps=fps, macro_block_size=8)
-        self.period, self.camera, self.next_t = 1.0 / fps, camera, 0.0
+        self.period, self.camera, self.next_t = 1.0 / fps, camera, None
+        self.times: list[float] = []  # sim time of each frame, used by `tron2-agent demo`
 
     def __call__(self, sim: Sim) -> None:
+        if self.next_t is None:
+            self.next_t = sim.time
         if sim.time >= self.next_t:
             self.w.append_data(sim.render(self.camera))
+            self.times.append(round(sim.time, 3))
             self.next_t += self.period
 
     def close(self) -> None:
         self.w.close()
+        self.path.with_name("frames.json").write_text(json.dumps(self.times))
 
 
 def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True, seed: int | None = None) -> dict:
@@ -58,7 +65,15 @@ def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True
         planner = scripted_pick_place(SCRIPTED_OBJ[task_name])
     else:
         planner = OllamaPlanner(args.model, host=args.host, think=args.think)
-    runner = AgentRunner(skills, planner, max_steps=args.max_steps, use_images=not args.no_images, log_dir=out_dir, verbose=verbose)
+    runner = AgentRunner(
+        skills,
+        planner,
+        max_steps=args.max_steps,
+        use_images=not args.no_images,
+        log_dir=out_dir,
+        verbose=verbose,
+        explain=args.explain,
+    )
     res = runner.run(instruction)
     if rec:
         rec.close()
@@ -91,9 +106,24 @@ def main() -> None:
         p.add_argument("--no-images", action="store_true", help="text-only observations")
         p.add_argument("--video", action="store_true", help="record robot-tracking video (video.mp4)")
         p.add_argument("--seed", type=int, default=None, help="randomize start heading and object positions")
+        p.add_argument("--explain", action="store_true", help="model adds a one-line reason to every tool call")
         if name == "eval":
             p.add_argument("--episodes", type=int, default=5)
+    d = sub.add_parser("demo", help="render an annotated demo video from a run recorded with --video")
+    d.add_argument("run_dir")
+    d.add_argument("--out", default=None, help="output path, default <run_dir>/demo.mp4")
+    d.add_argument("--think-s", type=float, default=2.5, help="seconds shown per model decision")
+    d.add_argument("--speed", type=float, default=1.5, help="playback speed of robot motion")
     args = ap.parse_args()
+    if args.cmd == "demo":
+        from pathlib import Path
+
+        from .demo import make_demo
+
+        run_dir = Path(args.run_dir)
+        out = make_demo(run_dir, Path(args.out) if args.out else run_dir / "demo.mp4", args.think_s, args.speed)
+        print(f"demo: {out}")
+        return
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
     instruction = args.instruction or TASKS[args.task].instruction
