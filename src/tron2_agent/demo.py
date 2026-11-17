@@ -190,11 +190,22 @@ class Composer:
             d.text((x, y), ("→ " + call)[:44], font=F_MONO, fill=ACCENT)
         y += 34
 
-        if phase == "exec" and progress > 0.85 or done_card:
-            ok = st.result.get("success", False)
-            msg = st.result.get("message", "")
-            d.text((x, y), ("✓ " if ok else "✗ ") + msg[:46], font=F_SMALL, fill=OK if ok else BAD)
-        y += 24
+        # result of this call once it finishes; while deciding, the previous result the model is reacting to
+        shown = st if (phase == "exec" and progress > 0.85) or done_card else None
+        if phase == "think" and idx > 0:
+            shown = self.steps[idx - 1]
+        if shown is not None:
+            ok = shown.result.get("success", False)
+            prefix = "" if shown is st else f"previous ({shown.tool}): "
+            msg = prefix + str(shown.result.get("message", ""))
+            color = OK if ok else BAD
+            d.text((x, y), "✓" if ok else "✗", font=F_MONO_S, fill=color)
+            for ln in _wrap(msg, F_MONO_S, PANEL_W - 22)[:2]:
+                d.text((x + 18, y), ln, font=F_MONO_S, fill=color)
+                y += 16
+        else:
+            y += 16
+        y += 12
 
         # step log
         d.text((x, y), "TOOL CALL LOG", font=F_LABEL, fill=MUTED)
