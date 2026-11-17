@@ -42,6 +42,7 @@ The arm can only reach over a table edge, so to pick or place you must work out 
 2. Choose the table edge closest to the item.
 3. Stand 0.40 m from the item, straight out from that edge, facing the item.
 Example: item at (1.85, 0.05) on a table with x_range [1.70, 2.30], y_range [-0.45, 0.45]. The closest edge is x = 1.70, so navigate_to(x=1.45, y=0.05, yaw_deg=0), then pick.
+The robot holds one object at a time. Plan for "put X in the bin": detect -> navigate next to X -> pick X -> search bin (if not visible or remembered) -> navigate next to the bin -> place bin. For several objects, repeat this for each one, then call done.
 If a skill fails, read the message and recover; positions in the message tell you how far off you are. Do not repeat a call that just failed with the same arguments. Never invent names: use names returned by detect or search."""
 
 
@@ -370,8 +371,8 @@ class AgentRunner:
                 tool_fail_streak[call.name] = tool_fail_streak.get(call.name, 0) + 1
                 if fail_counts[key] >= 2 or tool_fail_streak[call.name] >= 2:
                     result["hint"] = (
-                        f"{call.name} has failed {tool_fail_streak[call.name]} times in a row; stop using it this way "
-                        "and do something different (re-check positions with detect and recompute where to stand, or search(name))"
+                        f"{call.name} has failed {tool_fail_streak[call.name]} times in a row. Do what the message says, "
+                        "or try a different step of the plan."
                     )
             elif call.name != "done":
                 tool_fail_streak[call.name] = 0

@@ -500,7 +500,8 @@ class Skills:
         if name not in self.objects:
             return fail(f"unknown object '{name}'")
         if self.holding:
-            return fail(f"already holding {self.holding}; place it first")
+            where = "navigate next to the bin" if "bin" in self.seen else "search('bin'), navigate next to it"
+            return fail(f"already holding {self.holding} (one object at a time). First {where} and place it, then come back.")
         if (e := self._require_seen(name)) is not None:
             return e
         p = self.sim.body_pos(name)
