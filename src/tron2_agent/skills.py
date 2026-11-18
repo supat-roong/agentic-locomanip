@@ -472,7 +472,9 @@ class Skills:
 
     def _update_holding(self) -> str | None:
         """Re-check what is between the fingers; returns the name of an object that was dropped."""
-        was, self.holding = self.holding, self._grasped_object()
+        was = self.holding
+        # keep the held object if it is still between the fingers (others, e.g. in the bin, may touch them too)
+        self.holding = was if was and self._is_grasped(was) else self._grasped_object()
         return was if was and was != self.holding else None
 
     def _where(self, name: str) -> str:
