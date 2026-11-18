@@ -1,7 +1,7 @@
 """Command-line entry point.
 
-  tron2-agent run --task red_to_bin                       # qwen3-vl:8b-instruct via Ollama
-  tron2-agent run --task red_to_bin --model gemma4:12b-it-qat
+  tron2-agent run --task red_to_bin                       # gemma4:12b-it-qat via Ollama
+  tron2-agent run --task red_to_bin --model qwen3-vl:8b-instruct
   tron2-agent run --instruction "put the blue cube in the bin"
   tron2-agent run --task red_to_bin --planner scripted    # no LLM baseline
   tron2-agent eval --task red_to_bin --episodes 5
@@ -24,7 +24,7 @@ from .sim import Sim
 from .skills import Skills
 from .tasks import TASKS
 
-DEFAULT_MODEL = "qwen3-vl:8b-instruct"
+DEFAULT_MODEL = "gemma4:12b-it-qat"
 SCRIPTED_OBJ = {"red_to_bin": "red_cube", "blue_to_bin": "blue_cube", "can_to_bin": "green_can"}
 
 
