@@ -256,7 +256,7 @@ class Skills:
                     f"({x:.2f},{y:.2f}) is on {t.name} or closer than {NEAR_EDGE_MIN:.2f} m to its edge "
                     f"({t.name} spans x {t.pos[0] - TABLE_HALF[0]:.2f}..{t.pos[0] + TABLE_HALF[0]:.2f}, "
                     f"y {t.pos[1] - TABLE_HALF[1]:.2f}..{t.pos[1] + TABLE_HALF[1]:.2f}). "
-                    "Stand on the floor 0.15-0.30 m outside an edge instead."
+                    "Stand on the floor 0.15-0.30 m outside an edge instead. " + self._edge_limits(t, goal)
                 )
         if (e := self._tuck_arm()) is not None:
             return e
@@ -293,6 +293,20 @@ class Skills:
         if pos_err > 0.12:
             return fail("did not reach goal next to the table", base=st, pos_err_m=round(pos_err, 3))
         return ok(f"arrived next to {t.name}", base=st, pos_err_m=round(pos_err, 3), now_visible=self._observe())
+
+    def _edge_limits(self, t, goal: np.ndarray) -> str:
+        """The valid standing range on the side of table t nearest to goal."""
+        x0, x1 = t.pos[0] - TABLE_HALF[0], t.pos[0] + TABLE_HALF[0]
+        y0, y1 = t.pos[1] - TABLE_HALF[1], t.pos[1] + TABLE_HALF[1]
+        m = NEAR_EDGE_MIN
+        sides = {
+            "x_min": (abs(goal[0] - x0), f"x must be <= {x0 - m:.2f}"),
+            "x_max": (abs(goal[0] - x1), f"x must be >= {x1 + m:.2f}"),
+            "y_min": (abs(goal[1] - y0), f"y must be <= {y0 - m:.2f}"),
+            "y_max": (abs(goal[1] - y1), f"y must be >= {y1 + m:.2f}"),
+        }
+        side = min(sides, key=lambda k: sides[k][0])
+        return f"To stand on the {side} side, {sides[side][1]}."
 
     def _drive_to(self, goal: np.ndarray, yaw_deg: float | None, tol: float) -> dict:
         """Turn-drive-align to a floor point with no collision checks (callers route first)."""
