@@ -524,7 +524,11 @@ class Skills:
             self._wait(0.8)
             self._update_holding()
             if self.holding:
-                return ok(f"gripper closed on {self.holding}", **self._ee_report())
+                # remind the planner where the drop target is, so it does not reuse the object's coordinates
+                bins = {n: self._describe(n, self.seen[n]) for n in self.bins if n in self.seen}
+                nxt = (f"Now lift it, then use the BIN's world_xyz and closest_table_edge (below), not {self.holding}'s."
+                       if bins else "Now lift it, then find the bin with rotate and detect.")
+                return ok(f"gripper closed on {self.holding}. {nxt}", **self._ee_report(), bins=list(bins.values()))
             return fail("gripper closed on nothing", **self._ee_report())
         obj = self.holding
         self.sim.grip_target = GRIPPER_OPEN
@@ -532,7 +536,14 @@ class Skills:
         self.holding = None
         if obj is None:
             return ok("gripper open", **self._ee_report())
-        return ok(f"released {obj}; it is now on/in {self._where(obj)}", object_now_on=self._where(obj), **self._ee_report())
+        where = self._where(obj)
+        if where in self.bins:
+            return ok(f"released {obj}; it is now in {where}", object_now_on=where, **self._ee_report())
+        return fail(
+            f"released {obj}, but it landed on {where}, NOT in a bin. The task is not done: pick it up again "
+            "and open the gripper above the bin's world_xyz.",
+            object_now_on=where, **self._ee_report(),
+        )
 
     def _tuck_arm(self) -> dict | None:
         """Before driving: lift clear of the table and fold the arm, keeping any held object."""

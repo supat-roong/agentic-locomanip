@@ -32,7 +32,7 @@ Skills:
 - rotate(angle_deg): turn in place (positive = left).
 - navigate_to(x, y, yaw_deg): drive to a floor point and face yaw_deg. It routes around tables by itself and folds the arm before driving (a held object stays held). The point must be on the floor, at least 0.15 m outside every table edge.
 - move_eef(x, y, z, yaw_deg): move the gripper tip, pointing straight down, to a world point. The arm reaches points 0.18-0.60 m in front of the base and at most 0.30 m to the side. yaw_deg turns the gripper; use the robot's own yaw so the fingers close side to side. Moves are straight lines when the gripper is already near the target.
-- gripper(action): "open" or "close". Closing reports what it grasped; opening reports where the released object ended up.
+- gripper(action): "open" or "close". Closing reports what it grasped and where the bin is; opening reports where the released object ended up. Only call done(success=true) after a release reports the object is in the bin.
 - get_state(): base pose, what is held, gripper opening.
 - done(success, summary): call when the task is finished or impossible.
 
