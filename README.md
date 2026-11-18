@@ -1,15 +1,15 @@
 # tron2-agent
 
-Agentic navigation and manipulation for the LimX TRON2 WFYG (wheel-legged base with one 6-DoF arm) in MuJoCo. A local vision-language model running in Ollama plans the task by calling robot skills as tools. Everything runs on an Apple Silicon Mac (developed on an M4 with 16 GB).
+Agentic navigation and manipulation for the LimX TRON2 WFYG (wheel-legged base with one 6-DoF arm) in MuJoCo. A local vision-language model running in Ollama plans the task by calling robot tools. Everything runs on an Apple Silicon Mac (developed on an M4 with 16 GB), or on a Kaggle T4 GPU.
 
 ## Architecture
 
 ```
- instruction ──► Planner (local VLM via Ollama, e.g. qwen3-vl:8b-instruct)
+ instruction ──► Planner (local VLM via Ollama, default gemma4:12b-it-qat)
                    │  tool call (one per turn)            ▲ JSON result + head camera image
                    ▼                                       │
-               Validator (schema, types, bounds) ──► Skills ┘
-                                                   │  detect / search / navigate_to / approach / pick / place ...
+               Validator (schema, types, bounds) ──► Tools ┘
+                                                   │  detect / rotate / navigate_to / move_eef / gripper ...
                                                    ▼
                Sim (MuJoCo, 1 kHz)
                  ├─ legs + wheels: LimX WF_TRON2A RL policy (ONNX, 50 Hz) taking (vx, wz) commands
@@ -18,13 +18,28 @@ Agentic navigation and manipulation for the LimX TRON2 WFYG (wheel-legged base w
                  └─ gripper: force-limited PD
 ```
 
-The planner never outputs motor commands. It sequences coarse skills, and each skill runs its own closed-loop control inside the simulator. This follows the "LLM as high-level planner" pattern from the GPT-6 Astra evaluations, sized for a small local model.
+The planner never outputs motor commands, but it does all of the task reasoning. There is no pick, place or approach skill: the model reads positions from `detect`, works out where to stand, then hovers, lowers, closes, lifts and drops with `move_eef` and `gripper`. Each tool runs its own closed-loop control inside the simulator.
 
-**Locomotion.** The legs run the pretrained `WF_TRON2A` policy from `limxdynamics/tron2_rl_deploy_python`. It was trained without an arm. It still balances the WFYG body (about 7 kg heavier), but the base drifts when the arm reaches out. A position-hold loop counters this during manipulation.
+**Locomotion.** The legs run the pretrained `WF_TRON2A` policy from `limxdynamics/tron2_rl_deploy_python`. It was trained without an arm. It still balances the WFYG body (about 7 kg heavier), but the base drifts when the arm reaches out, so a position-hold loop runs during arm moves. `navigate_to` folds the arm before driving (a held object stays held).
 
-**Perception.** `detect()` uses simulator ground truth, filtered to items inside the head camera's field of view. Items seen earlier are remembered, and `approach` refuses items that have never been seen, so the planner still has to search (`search(name)` turns in place until the item is in view). Camera images go to the model for visual context only.
+**Perception.** `detect()` uses simulator ground truth, filtered to items inside the head camera's field of view. Items seen earlier are remembered. Objects and the bin come with their world position and closest table edge, tables with their x and y ranges. A held object is reported only as "in the gripper", so its coordinates cannot be mistaken for a place to go. Camera images go to the model for visual context.
 
-**Manipulation.** Grasps are top-down. The arm reaches from 0.60 to 1.10 m high and 0.18 to 0.55 m in front of the base. `approach()` puts the base about 0.38 m from the target, square to the nearest table edge.
+**Manipulation.** The gripper always points straight down. The arm reaches 0.18 to 0.60 m in front of the base, at most 0.30 m to the side, from table height up to 0.40 m above it. Tool results are written to steer a small model: a rejected `navigate_to` names the valid range ("x must be <= 1.54"), `gripper("close")` reports what it grasped and where the bin is, and a release that misses the bin is reported as a failure.
+
+## Tools
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `detect` | | Items in view plus remembered items, with positions and closest table edge |
+| `look` | `camera` (head, wrist) | Attach a camera image |
+| `rotate` | `angle_deg` | Turn in place (positive is left). Search by turning 45 degrees the same way and calling `detect` |
+| `navigate_to` | `x`, `y`, `yaw_deg` | Drive to a floor point, routing around tables. Must stay at least 0.15 m outside table edges |
+| `move_eef` | `x`, `y`, `z`, `yaw_deg` | Move the gripper tip to a world point |
+| `gripper` | `action` (open, close) | Open or close the gripper |
+| `get_state` | | Base pose, held object, gripper opening |
+| `done` | `success`, `summary` | End the episode |
+
+With `--explain` every tool also takes a required `reason` string (one sentence), which the demo video shows.
 
 ## Layout
 
@@ -32,33 +47,46 @@ The planner never outputs motor commands. It sequences coarse skills, and each s
 |---|---|
 | `src/tron2_agent/locomotion.py` | ONNX wheel-leg policy wrapper (observation layout matches LimX deploy code) |
 | `src/tron2_agent/arm.py` | Arm IK |
-| `src/tron2_agent/scene.py` | Scene: robot, two tables, cubes, can, bin, head and wrist cameras |
+| `src/tron2_agent/scene.py` | Scene: robot (coloured like the real TRON 2), two tables, cubes, can, bin, cameras |
 | `src/tron2_agent/sim.py` | Physics loop and low-level control |
-| `src/tron2_agent/skills.py` | Skills exposed as tools |
-| `src/tron2_agent/agent.py` | Tool schemas, validator, Ollama and scripted planners, episode runner |
+| `src/tron2_agent/skills.py` | Tool implementations |
+| `src/tron2_agent/agent.py` | Tool schemas, system prompt, validator, Ollama and scripted planners, episode runner |
 | `src/tron2_agent/tasks.py` | Tasks with ground-truth success checks |
-| `src/tron2_agent/cli.py` | `tron2-agent run` and `tron2-agent eval` |
+| `src/tron2_agent/demo.py` | Annotated demo video from a recorded run |
+| `src/tron2_agent/cli.py` | `tron2-agent run`, `eval` and `demo` |
 | `scripts/fetch_assets.sh` | Downloads the LimX robot model and policy into `assets/` |
+| `tools/kaggle/` | Kaggle notebook generator and upload script |
 
 ## Setup
 
 ```bash
 ./scripts/fetch_assets.sh          # robot MJCF + meshes, WF policy (Apache-2.0, LimX Dynamics)
 uv sync
-ollama pull qwen3-vl:8b-instruct   # needs a recent Ollama (0.40+)
+ollama pull gemma4:12b-it-qat      # needs a recent Ollama (0.40+)
 ```
 
 ## Usage
 
 ```bash
 uv run tron2-agent run --task red_to_bin --planner scripted --video   # no LLM, sanity check
-uv run tron2-agent run --task red_to_bin --video                      # qwen3-vl:8b-instruct
-uv run tron2-agent run --instruction "put the blue cube in the bin" --model gemma4:12b-it-qat
-uv run tron2-agent eval --task two_cubes --episodes 3 --seed 10   # randomized start heading + object jitter
+uv run tron2-agent run --task red_to_bin --video --explain            # gemma4:12b-it-qat
+uv run tron2-agent demo runs/<run dir>                                # annotated demo.mp4
+uv run tron2-agent run --instruction "put the blue cube in the bin" --model qwen3-vl:8b-instruct
+uv run tron2-agent eval --task two_cubes --episodes 2 --seed 10 --max-steps 50   # randomized scenes
 uv run pytest
 ```
 
-Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every tool call, result, and model latency), the camera images sent to the model, `result.json`, and `video.mp4` when `--video` is set.
+Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every tool call, result, reason and model latency), the camera images sent to the model, `result.json`, and with `--video` a chase-camera `video.mp4` plus `frames.json`.
+
+`tron2-agent demo` turns a run recorded with `--video` into a 1280x720 video: the robot on the left, and on the right the prompt, the camera image the model saw, its reason, the tool call and the result. Model thinking time is shown as a 2.5 s pause per call and robot motion plays at 1.5x (`--think-s`, `--speed`).
+
+## Kaggle
+
+```bash
+uv run python tools/kaggle/push.py --user <kaggle-username>
+```
+
+This uploads the source as a private dataset and pushes a private notebook (T4 GPU, internet on). The notebook fetches the LimX assets, installs Ollama, pulls gemma4:12b-it-qat, runs `red_to_bin` and `two_cubes` with video, and renders both demo videos.
 
 ## Tasks
 
@@ -71,28 +99,31 @@ Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every t
 
 ## Results
 
-`qwen3-vl:8b-instruct` on an M4 (16 GB), randomized scenes (`--seed`):
+On an M4 (16 GB), randomized scenes (`--seed`, random start heading and object positions):
 
-| Task | Episodes | Success | Tool calls per episode | Wall time per episode |
+| Planner | Task | Success | Tool calls | Wall time per episode |
 |---|---|---|---|---|
-| `two_cubes` | 3 (seeds 10-12) | 3/3 | 15-17 | 6-7 min |
-| `can_to_bin` (scripted planner, no LLM) | 4 (seeds 1-4) | 4/4 | 7 | ~9 s |
+| `gemma4:12b-it-qat` | `red_to_bin` (seeds 10-12) | 3/3 | 17-20 | 9-55 min |
+| `gemma4:12b-it-qat` | `two_cubes` (seeds 10-11) | 1/2 | 35 (success) | |
+| `qwen3-vl:8b-instruct` | `red_to_bin` (default scene) | 0/5 | | |
+| scripted (no LLM) | `red_to_bin`, `blue_to_bin`, `can_to_bin` (seeds 1-4) | 12/12 | 11 | ~4 s |
 
-Single default-scene runs of `red_to_bin`, `can_to_bin` and `two_cubes` also succeeded. Most of the wall time is model latency (about 18 s per call with an image attached).
+The failed `two_cubes` episode put the blue cube in the bin, then kept driving back to the same spot until the step limit. `qwen3-vl:8b` grasps correctly but reuses the wrong coordinates (the cube's, then its own pose) when heading for the bin. Two other 9B models were tried: `ornith-1.5:9b` grasped too high and the cube slipped out, and `mimo-v2.6:9b` ran out of GPU memory next to MuJoCo.
+
+Wall time is mostly model latency. It grows from about 25 s to 1 to 2 min per call when the Mac runs low on memory.
 
 ## Models
 
 | Role | Model | Size |
 |---|---|---|
-| Planner (default) | `qwen3-vl:8b-instruct` | 6.2 GB |
-| Planner alternative | `gemma4:12b-it-qat` | 7.2 GB |
-| Fast or second model | `qwen3-vl:4b`, `gemma4:e4b` | 3.3 / 6.1 GB |
+| Planner (default) | `gemma4:12b-it-qat` | 7.2 GB |
+| Planner alternative | `qwen3-vl:8b-instruct` | 6.2 GB |
 
 Any Ollama model with tool calling works through `--model`. Use `--no-images` for text-only models.
 
 ## Known limitations
 
 - Perception is privileged. Next step: replace `detect()` with VLM pointing on the head camera plus depth back-projection.
-- The locomotion policy never saw arm motion. Driving with the arm extended is untested; skills stow the arm before moving.
+- The locomotion policy never saw arm motion, so the arm is folded before every drive.
 - Navigation only avoids tables (straight-line checks plus one detour waypoint). It does not plan around arbitrary obstacles.
-- Every model call takes about 5 to 20 s on an M4 with images attached, so one episode takes a few minutes of wall time.
+- A 12B model plus MuJoCo is a tight fit in 16 GB. Episodes take 10 to 55 min of wall time.
