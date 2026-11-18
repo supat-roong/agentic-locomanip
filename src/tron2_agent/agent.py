@@ -29,7 +29,7 @@ World frame: x/y in metres on the floor, yaw in degrees (0 = +x, 90 = +y). Table
 Skills:
 - detect(): items visible in the head camera now, plus 'remembered' items seen earlier. Objects and the bin give world_xyz (the object's centre), the table they are 'on' and their closest_table_edge; tables give their x_range and y_range.
 - look(camera): get a camera image ("head" or "wrist") to check the scene visually.
-- rotate(angle_deg): turn in place (positive = left). To find something not visible, rotate about 60 degrees and detect again.
+- rotate(angle_deg): turn in place (positive = left).
 - navigate_to(x, y, yaw_deg): drive to a floor point and face yaw_deg. It routes around tables by itself and folds the arm before driving (a held object stays held). The point must be on the floor, at least 0.15 m outside every table edge.
 - move_eef(x, y, z, yaw_deg): move the gripper tip, pointing straight down, to a world point. The arm reaches points 0.18-0.60 m in front of the base and at most 0.30 m to the side. yaw_deg turns the gripper; use the robot's own yaw so the fingers close side to side. Moves are straight lines when the gripper is already near the target.
 - gripper(action): "open" or "close". Closing reports what it grasped; opening reports where the released object ended up.
@@ -42,8 +42,8 @@ The arm can only reach over a table edge, so first work out where to stand:
 3. Stand 0.40 m from the item, straight out past that edge, facing the item:
    x_min: (ix - 0.40, iy), yaw 0     x_max: (ix + 0.40, iy), yaw 180
    y_min: (ix, iy - 0.40), yaw 90    y_max: (ix, iy + 0.40), yaw -90
-Example A: item (3.15, -1.00), closest_table_edge side x_min: navigate_to(x=2.75, y=-1.00, yaw_deg=0).
-Example B: item (-1.00, 3.10), closest_table_edge side y_min: navigate_to(x=-1.00, y=2.70, yaw_deg=90).
+Example A: item (3.15, -1.00), side x_min: x = 3.15 - 0.40 = 2.75, so navigate_to(x=2.75, y=-1.00, yaw_deg=0).
+Example B: item (-1.00, 3.10), side y_min: y = 3.10 - 0.40 = 2.70, so navigate_to(x=-1.00, y=2.70, yaw_deg=90).
 
 To pick an object at (ix, iy, iz) after standing next to it with yaw Y:
   gripper("open") -> move_eef(ix, iy, iz + 0.12, Y) to hover above it -> move_eef(ix, iy, iz, Y) to lower around it
@@ -388,7 +388,12 @@ class AgentRunner:
                 key = call.name + json.dumps(call.args, sort_keys=True)
                 fail_counts[key] = fail_counts.get(key, 0) + 1
                 tool_fail_streak[call.name] = tool_fail_streak.get(call.name, 0) + 1
-                if fail_counts[key] >= 2 or tool_fail_streak[call.name] >= 2:
+                if fail_counts[key] >= 2:
+                    result["hint"] = (
+                        f"This exact call has already failed {fail_counts[key]} times and will fail again. "
+                        "Do not repeat it: read the message and change the arguments."
+                    )
+                elif tool_fail_streak[call.name] >= 2:
                     result["hint"] = (
                         f"{call.name} has failed {tool_fail_streak[call.name]} times in a row. Do what the message says, "
                         "or try a different step of the plan."
