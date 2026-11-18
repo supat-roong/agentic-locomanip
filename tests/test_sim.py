@@ -90,6 +90,8 @@ def test_navigate_then_move_eef_grasp_and_drop(sim):
     assert r["success"] and r["holding"] == "red_cube", r
     assert sk.move_eef(p[0], p[1], p[2] + 0.15, 0.0)["success"]
     assert sim.body_pos("red_cube")[2] > p[2] + 0.1
+    held = next(i for i in sk.detect()["items"] + sk.detect()["remembered"] if i["name"] == "red_cube")
+    assert held["on"] == "gripper" and "world_xyz" not in held
     r = sk.navigate_to(0.0, 1.55, 90.0)  # bin at (0, 1.95), table_B edge y = 1.75
     assert r["success"] and sk.holding == "red_cube", r
     c = sim.body_pos("bin")

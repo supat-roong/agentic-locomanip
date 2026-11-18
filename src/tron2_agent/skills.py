@@ -178,6 +178,8 @@ class Skills:
         return visible
 
     def _describe(self, n: str, p: np.ndarray) -> dict:
+        if n == self.holding:  # no coordinates: they are the gripper's, not a place to go
+            return {"name": n, "kind": "object", "on": "gripper", "note": "in the gripper"}
         fwd, left = self._to_robot_frame(p)
         kind = "object" if n in self.objects else "bin" if n in self.bins else "table"
         entry = {
@@ -196,7 +198,7 @@ class Skills:
             entry["y_range"] = [round(float(p[1]) - TABLE_HALF[1], 2), round(float(p[1]) + TABLE_HALF[1], 2)]
         else:
             t = self._table_of(p)
-            if t is not None and self.holding != n:
+            if t is not None:
                 tx, ty = t.pos
                 edges = {
                     "x_min": (p[0] - (tx - TABLE_HALF[0]), f"x = {tx - TABLE_HALF[0]:.2f}"),
@@ -210,7 +212,7 @@ class Skills:
                     "edge": edges[side][1],
                     "item_to_edge_m": round(float(edges[side][0]), 2),
                 }
-            entry["on"] = "gripper" if self.holding == n else (t.name if t else "floor")
+            entry["on"] = t.name if t else "floor"
         return entry
 
     def detect(self) -> dict:
@@ -527,7 +529,7 @@ class Skills:
                 # remind the planner where the drop target is, so it does not reuse the object's coordinates
                 bins = {n: self._describe(n, self.seen[n]) for n in self.bins if n in self.seen}
                 nxt = (f"Now lift it, then use the BIN's world_xyz and closest_table_edge (below), not {self.holding}'s."
-                       if bins else "Now lift it, then find the bin with rotate and detect.")
+                       if bins else "Now lift it, then find the bin: rotate(45) and detect, repeating in the same direction until the bin appears.")
                 return ok(f"gripper closed on {self.holding}. {nxt}", **self._ee_report(), bins=list(bins.values()))
             return fail("gripper closed on nothing", **self._ee_report())
         obj = self.holding
