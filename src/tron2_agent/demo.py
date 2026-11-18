@@ -36,10 +36,12 @@ THINK = (246, 196, 92)
 
 
 def _font(size: int, mono: bool = False, bold: bool = False) -> ImageFont.FreeTypeFont:
+    dv = "/usr/share/fonts/truetype/dejavu/"  # Linux / Kaggle (has the check and arrow glyphs)
     candidates = (
-        ["/System/Library/Fonts/Menlo.ttc", "DejaVuSansMono.ttf"]
+        ["/System/Library/Fonts/Menlo.ttc", dv + "DejaVuSansMono.ttf", "DejaVuSansMono.ttf"]
         if mono
-        else ["/System/Library/Fonts/HelveticaNeue.ttc", "/System/Library/Fonts/Helvetica.ttc", "DejaVuSans.ttf"]
+        else ["/System/Library/Fonts/HelveticaNeue.ttc", "/System/Library/Fonts/Helvetica.ttc",
+              dv + ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"), "DejaVuSans.ttf"]
     )
     for path in candidates:
         try:
