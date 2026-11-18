@@ -29,7 +29,7 @@ World frame: x/y in metres on the floor, yaw in degrees (0 = +x, 90 = +y). Table
 Skills:
 - detect(): items visible in the head camera now, plus 'remembered' items seen earlier. Objects and the bin give world_xyz (the object's centre), the table they are 'on' and their closest_table_edge; tables give their x_range and y_range.
 - look(camera): get a camera image ("head" or "wrist") to check the scene visually.
-- rotate(angle_deg): turn in place (positive = left).
+- rotate(angle_deg): turn in place (positive = left). To find an item that is not visible or remembered, rotate(45) then detect, and repeat in the same direction until it appears (8 turns is a full circle).
 - navigate_to(x, y, yaw_deg): drive to a floor point and face yaw_deg. It routes around tables by itself and folds the arm before driving (a held object stays held). The point must be on the floor, at least 0.15 m outside every table edge.
 - move_eef(x, y, z, yaw_deg): move the gripper tip, pointing straight down, to a world point. The arm reaches points 0.18-0.60 m in front of the base and at most 0.30 m to the side. yaw_deg turns the gripper; use the robot's own yaw so the fingers close side to side. Moves are straight lines when the gripper is already near the target.
 - gripper(action): "open" or "close". Closing reports what it grasped and where the bin is; opening reports where the released object ended up. Only call done(success=true) after a release reports the object is in the bin.
