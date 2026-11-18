@@ -24,6 +24,7 @@ tron2-agent = "tron2_agent.cli:main"
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["tools/kaggle/notebook"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
