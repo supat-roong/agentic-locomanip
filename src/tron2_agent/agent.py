@@ -27,26 +27,31 @@ You act ONLY by calling tools. Call one tool at a time and read its JSON result 
 
 World frame: x/y in metres on the floor, yaw in degrees (0 = +x, 90 = +y). Tables are 0.62 m high.
 Skills:
-- detect(): items visible in the head camera now, plus 'remembered' items seen earlier. Objects and the bin give world_xyz, the table they are 'on' and their closest_table_edge; tables give their x_range and y_range.
+- detect(): items visible in the head camera now, plus 'remembered' items seen earlier. Objects and the bin give world_xyz (the object's centre), the table they are 'on' and their closest_table_edge; tables give their x_range and y_range.
 - look(camera): get a camera image ("head" or "wrist") to check the scene visually.
-- search(name): turn in place until the named item is in view. Use it when an item is not visible or not remembered.
-- rotate(angle_deg): turn in place (positive = left).
-- navigate_to(x, y, yaw_deg): drive to a floor point and face yaw_deg. It routes around tables by itself. The point must be on the floor, at least 0.15 m outside every table edge.
-- pick(name): grasp an object. The robot must stand with the object about 0.4 m straight ahead (reach: 0.18-0.55 m forward, at most 0.25 m sideways).
-- place(target): put the held object into the bin. Same reach rule as pick.
-- get_state(), stow_arm(), open_gripper()
+- rotate(angle_deg): turn in place (positive = left). To find something not visible, rotate about 60 degrees and detect again.
+- navigate_to(x, y, yaw_deg): drive to a floor point and face yaw_deg. It routes around tables by itself and folds the arm before driving (a held object stays held). The point must be on the floor, at least 0.15 m outside every table edge.
+- move_eef(x, y, z, yaw_deg): move the gripper tip, pointing straight down, to a world point. The arm reaches points 0.18-0.60 m in front of the base and at most 0.30 m to the side. yaw_deg turns the gripper; use the robot's own yaw so the fingers close side to side. Moves are straight lines when the gripper is already near the target.
+- gripper(action): "open" or "close". Closing reports what it grasped; opening reports where the released object ended up.
+- get_state(): base pose, what is held, gripper opening.
 - done(success, summary): call when the task is finished or impossible.
 
-The arm can only reach over a table edge, so to pick or place you must work out where to stand:
-1. From detect, get the item's world_xyz (ix, iy) and its closest_table_edge side (x_min, x_max, y_min or y_max).
+The arm can only reach over a table edge, so first work out where to stand:
+1. From detect, get the item's world_xyz (ix, iy, iz) and its closest_table_edge side (x_min, x_max, y_min or y_max).
 2. Use the matching row below.
 3. Stand 0.40 m from the item, straight out past that edge, facing the item:
    x_min: (ix - 0.40, iy), yaw 0     x_max: (ix + 0.40, iy), yaw 180
    y_min: (ix, iy - 0.40), yaw 90    y_max: (ix, iy + 0.40), yaw -90
 Example A: item (3.15, -1.00), closest_table_edge side x_min: navigate_to(x=2.75, y=-1.00, yaw_deg=0).
 Example B: item (-1.00, 3.10), closest_table_edge side y_min: navigate_to(x=-1.00, y=2.70, yaw_deg=90).
-The robot holds one object at a time. Plan for "put X in the bin": detect -> navigate next to X -> pick X -> search bin (if not visible or remembered) -> navigate next to the bin -> place bin. For several objects, repeat this for each one, then call done.
-If a skill fails, read the message and recover; positions in the message tell you how far off you are. Do not repeat a call that just failed with the same arguments. Never invent names: use names returned by detect or search."""
+
+To pick an object at (ix, iy, iz) after standing next to it with yaw Y:
+  gripper("open") -> move_eef(ix, iy, iz + 0.12, Y) to hover above it -> move_eef(ix, iy, iz, Y) to lower around it
+  -> gripper("close") -> move_eef(ix, iy, iz + 0.15, Y) to lift it.
+To drop it into the bin at (bx, by, bz), stand next to the bin the same way, then
+  move_eef(bx, by, bz + 0.15, Y) -> gripper("open").
+The robot holds one object at a time. For several objects, repeat pick and drop for each one, then call done.
+"""
 
 
 def _fn(name: str, desc: str, props: dict | None = None, required: list[str] | None = None) -> dict:
@@ -69,7 +74,6 @@ TOOLS = [
         {"camera": {"type": "string", "enum": ["head", "wrist"]}},
         ["camera"],
     ),
-    _fn("search", "Turn in place until the named item is in view.", {"name": {"type": "string"}}, ["name"]),
     _fn("rotate", "Turn in place by angle_deg (positive = counter-clockwise/left).", {"angle_deg": {"type": "number"}}, ["angle_deg"]),
     _fn(
         "navigate_to",
@@ -77,10 +81,13 @@ TOOLS = [
         {"x": {"type": "number"}, "y": {"type": "number"}, "yaw_deg": {"type": "number"}},
         ["x", "y"],
     ),
-    _fn("pick", "Grasp and lift an object about 0.4 m straight ahead of the robot.", {"name": {"type": "string"}}, ["name"]),
-    _fn("place", "Place the held object into a bin about 0.4 m straight ahead of the robot.", {"target": {"type": "string"}}, ["target"]),
-    _fn("stow_arm", "Move the arm to its stowed pose."),
-    _fn("open_gripper", "Open the gripper (drops anything held)."),
+    _fn(
+        "move_eef",
+        "Move the gripper tip, pointing straight down, to world point (x, y, z) with the gripper rotated to yaw_deg.",
+        {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}, "yaw_deg": {"type": "number"}},
+        ["x", "y", "z", "yaw_deg"],
+    ),
+    _fn("gripper", "Open or close the gripper.", {"action": {"type": "string", "enum": ["open", "close"]}}, ["action"]),
     _fn(
         "done",
         "Finish the episode.",
@@ -156,7 +163,10 @@ class ScriptedPlanner:
 
 
 def scripted_pick_place(skills: Skills, obj: str, target: str = "bin") -> ScriptedPlanner:
-    """Baseline that knows the geometry: stands at Skills.standoff_pose of each item."""
+    """Baseline that knows the geometry: stands at Skills.standoff_pose of each item, then
+    drives the arm with the same move_eef/gripper calls the model gets."""
+    o = next(o for o in skills.sim.cfg.objects if o.name == obj)
+    grasp_dz = max(0.0, (o.size[2] if o.shape == "box" else o.size[1]) - 0.025)
 
     def stand_at(name: str):
         def args() -> dict:
@@ -168,14 +178,26 @@ def scripted_pick_place(skills: Skills, obj: str, target: str = "bin") -> Script
 
         return args
 
+    def above(name: str, dz: float):
+        def args() -> dict:
+            p = skills.sim.body_pos(name)
+            yaw = float(np.degrees(skills.sim.base_pose().yaw))
+            return {"x": float(p[0]), "y": float(p[1]), "z": float(p[2] + dz), "yaw_deg": yaw}
+
+        return args
+
     return ScriptedPlanner(
         [
-            ("search", {"name": obj}),
+            ("detect", {}),
             ("navigate_to", stand_at(obj)),
-            ("pick", {"name": obj}),
-            ("search", {"name": target}),
+            ("gripper", {"action": "open"}),
+            ("move_eef", above(obj, 0.12)),
+            ("move_eef", above(obj, grasp_dz)),
+            ("gripper", {"action": "close"}),
+            ("move_eef", above(obj, 0.15)),
             ("navigate_to", stand_at(target)),
-            ("place", {"target": target}),
+            ("move_eef", above(target, 0.15)),
+            ("gripper", {"action": "open"}),
         ]
     )
 
@@ -212,8 +234,8 @@ def validate_call(call: ToolCall) -> str | None:
             return f"{call.name}: argument '{k}' must be one of {props[k]['enum']}"
     if call.name == "rotate" and abs(call.args["angle_deg"]) > 360:
         return "rotate: |angle_deg| must be <= 360"
-    if call.name == "navigate_to" and (abs(call.args["x"]) > 10 or abs(call.args["y"]) > 10):
-        return "navigate_to: target outside the 10 m work area"
+    if call.name in ("navigate_to", "move_eef") and (abs(call.args["x"]) > 10 or abs(call.args["y"]) > 10):
+        return f"{call.name}: target outside the 10 m work area"
     return None
 
 
@@ -281,20 +303,14 @@ class AgentRunner:
                 return sk.detect()
             case "get_state":
                 return sk.get_state()
-            case "search":
-                return sk.search(str(a["name"]))
             case "rotate":
                 return sk.rotate(float(a["angle_deg"]))
             case "navigate_to":
                 return sk.navigate_to(float(a["x"]), float(a["y"]), a.get("yaw_deg"))
-            case "pick":
-                return sk.pick(str(a["name"]))
-            case "place":
-                return sk.place(str(a["target"]))
-            case "stow_arm":
-                return sk.stow_arm()
-            case "open_gripper":
-                return sk.open_gripper()
+            case "move_eef":
+                return sk.move_eef(float(a["x"]), float(a["y"]), float(a["z"]), float(a["yaw_deg"]))
+            case "gripper":
+                return sk.gripper(str(a["action"]))
             case "look":
                 return {"success": True, "message": f"{a['camera']} image attached below"}
         return {"success": False, "message": f"no executor for {call.name}"}
@@ -386,7 +402,7 @@ class AgentRunner:
                 break
             if call.name == "look" and not err:
                 msgs.append(self._image_msg(call.args["camera"], step))
-            elif self.use_images and call.name in ("rotate", "search", "navigate_to", "pick", "place"):
+            elif self.use_images and call.name in ("rotate", "navigate_to"):
                 msgs.append(self._image_msg("head", step))
             self._drop_old_images(msgs)
             if self.skills.sim.fallen():

@@ -102,7 +102,7 @@ def main() -> None:
         p.add_argument("--model", default=DEFAULT_MODEL)
         p.add_argument("--host", default=None, help="Ollama host, default http://localhost:11434")
         p.add_argument("--think", action=argparse.BooleanOptionalAction, default=None)
-        p.add_argument("--max-steps", type=int, default=30)
+        p.add_argument("--max-steps", type=int, default=40)
         p.add_argument("--no-images", action="store_true", help="text-only observations")
         p.add_argument("--video", action="store_true", help="record robot-tracking video (video.mp4)")
         p.add_argument("--seed", type=int, default=None, help="randomize start heading and object positions")

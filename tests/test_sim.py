@@ -35,13 +35,11 @@ def test_topdown_ik_reaches_table_height(sim):
     assert r.ok and r.pos_err < 0.01
 
 
-def test_pick_requires_reach(sim):
+def test_move_eef_requires_reach(sim):
     from tron2_agent.skills import Skills
 
     sim.reset()
-    k = Skills(sim)
-    k.detect()
-    r = k.pick("red_cube")
+    r = Skills(sim).move_eef(1.82, 0.10, 0.76, 0.0)  # red cube, robot still at the origin
     assert not r["success"] and "out of arm reach" in r["message"]
 
 
@@ -52,14 +50,6 @@ def test_moving_away_from_table_is_allowed(sim):
     near = np.array([1.5, 0.0])  # inside table_A's inflated footprint
     assert k._segment_hits_table(near, np.array([0.5, 0.0])) is None
     assert k._segment_hits_table(near, np.array([2.0, 0.0])) == "table_A"
-
-
-def test_approach_requires_seen_item(sim):
-    from tron2_agent.skills import Skills
-
-    sim.reset()
-    r = Skills(sim).approach("bin")
-    assert not r["success"] and "not been seen" in r["message"]
 
 
 def test_navigate_to_rejects_points_on_a_table(sim):
@@ -83,14 +73,24 @@ def test_navigate_to_routes_around_table(sim):
     assert np.hypot(p.x - 2.0, p.y - 0.9) < 0.12 and not sim.fallen()
 
 
-def test_navigate_to_edge_pose_then_pick(sim):
-    """The planner's job without approach(): stand 0.4 m out from the nearest edge, then pick."""
+def test_navigate_then_move_eef_grasp_and_drop(sim):
+    """The planner's job: stand 0.4 m out from the nearest edge, hover, lower, close, lift, drop in the bin."""
     from tron2_agent.skills import Skills
 
     sim.reset()
     sk = Skills(sim)
-    sk.detect()
-    r = sk.navigate_to(1.42, 0.10, 0.0)  # red cube at (1.82, 0.10), table edge x = 1.70
-    assert r["success"], r
-    r = sk.pick("red_cube")
-    assert r["success"], r
+    assert sk.navigate_to(1.42, 0.10, 0.0)["success"]  # red cube at (1.82, 0.10), table edge x = 1.70
+    p = sim.body_pos("red_cube")
+    assert sk.gripper("open")["success"]
+    assert sk.move_eef(p[0], p[1], p[2] + 0.12, 0.0)["success"]
+    assert sk.move_eef(p[0], p[1], p[2], 0.0)["success"]
+    r = sk.gripper("close")
+    assert r["success"] and r["holding"] == "red_cube", r
+    assert sk.move_eef(p[0], p[1], p[2] + 0.15, 0.0)["success"]
+    assert sim.body_pos("red_cube")[2] > p[2] + 0.1
+    r = sk.navigate_to(0.0, 1.55, 90.0)  # bin at (0, 1.95), table_B edge y = 1.75
+    assert r["success"] and sk.holding == "red_cube", r
+    c = sim.body_pos("bin")
+    assert sk.move_eef(c[0], c[1], c[2] + 0.15, 90.0)["success"]
+    r = sk.gripper("open")
+    assert r["object_now_on"] == "bin", r

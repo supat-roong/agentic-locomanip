@@ -6,8 +6,9 @@ def test_unknown_tool_rejected():
 
 
 def test_missing_and_extra_args():
-    assert "missing" in validate_call(ToolCall("pick", {}))
-    assert "unexpected" in validate_call(ToolCall("pick", {"name": "red_cube", "force": 3}))
+    assert "missing" in validate_call(ToolCall("move_eef", {"x": 1, "y": 0, "z": 0.7}))
+    assert "unexpected" in validate_call(ToolCall("gripper", {"action": "open", "force": 3}))
+    assert "one of" in validate_call(ToolCall("gripper", {"action": "squeeze"}))
 
 
 def test_string_number_coerced():
@@ -45,6 +46,6 @@ def test_with_reason_adds_required_reason_to_every_tool():
 def test_demo_call_str():
     from tron2_agent.demo import _call_str
 
-    assert _call_str("pick", {"name": "bin"}) == 'pick(name="bin")'
+    assert _call_str("gripper", {"action": "close"}) == 'gripper(action="close")'
     assert _call_str("rotate", {"angle_deg": 45.0}) == "rotate(angle_deg=45)"
     assert _call_str("done", {"success": True, "summary": "x"}) == "done(success=true)"

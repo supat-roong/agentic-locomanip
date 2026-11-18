@@ -223,28 +223,7 @@ class Skills:
             msg += f", {len(remembered)} remembered from earlier views"
         return ok(msg, items=items, remembered=remembered)
 
-    def _require_seen(self, name: str) -> dict | None:
-        if name not in self.objects and name not in self.bins:
-            return fail(f"unknown item '{name}'. Known names come from detect().")
-        if name not in self.seen and name != self.holding:
-            return fail(f"{name} has not been seen yet; search with rotate() and detect() first")
-        return None
-
     # -------------------------------------------------------------- navigation
-    def search(self, name: str, step_deg: float = 45.0) -> dict:
-        """Turn in place in steps until `name` is in view (max one full turn)."""
-        if name not in self.objects and name not in self.bins and name not in self.tables:
-            return fail(f"unknown item '{name}'")
-        if name in self._observe():
-            return ok(f"{name} is in view", item=self._describe(name, self.seen[name]))
-        for _ in range(int(360 / step_deg)):
-            r = self.rotate(step_deg)
-            if not r["success"] and "fell" in r["message"]:
-                return r
-            if name in self._observe():
-                return ok(f"found {name}", item=self._describe(name, self.seen[name]))
-        return fail(f"{name} not visible from here after a full turn; move somewhere else and search again")
-
     def rotate(self, angle_deg: float) -> dict:
         b = self.sim.base_pose()
         return self.navigate_to(b.x, b.y, np.degrees(b.yaw) + angle_deg)
@@ -270,16 +249,19 @@ class Skills:
         """
         b = self.sim.base_pose()
         start, goal = np.array([b.x, b.y]), np.array([x, y], float)
-        if np.linalg.norm(goal - start) <= tol:
-            return self._drive_to(goal, yaw_deg, tol)
+        in_place = np.linalg.norm(goal - start) <= tol
         for t in self.tables.values():
-            if self._box_dist(goal, t.pos, *TABLE_HALF) < NEAR_EDGE_MIN:
+            if not in_place and self._box_dist(goal, t.pos, *TABLE_HALF) < NEAR_EDGE_MIN:
                 return fail(
                     f"({x:.2f},{y:.2f}) is on {t.name} or closer than {NEAR_EDGE_MIN:.2f} m to its edge "
                     f"({t.name} spans x {t.pos[0] - TABLE_HALF[0]:.2f}..{t.pos[0] + TABLE_HALF[0]:.2f}, "
                     f"y {t.pos[1] - TABLE_HALF[1]:.2f}..{t.pos[1] + TABLE_HALF[1]:.2f}). "
                     "Stand on the floor 0.15-0.30 m outside an edge instead."
                 )
+        if (e := self._tuck_arm()) is not None:
+            return e
+        if in_place:  # turn in place (rotate)
+            return self._drive_to(goal, yaw_deg, tol)
         near = self._near_table(goal)
         final = goal
         if near is not None:  # manipulation pose: come in straight from outside the edge
@@ -387,35 +369,6 @@ class Skills:
         yaw = float(np.arctan2(-n[1], -n[0]))
         return goal, yaw
 
-    def approach(self, name: str) -> dict:
-        """Drive to a manipulation pose in front of an object or bin."""
-        if (e := self._require_seen(name)) is not None:
-            return e
-        sp = self.standoff_pose(name)
-        if isinstance(sp, str):
-            return fail(sp)
-        goal, yaw = sp
-        n = -np.array([np.cos(yaw), np.sin(yaw)])
-        pre = goal + n * 0.45
-        b = self.sim.base_pose()
-        here = np.array([b.x, b.y])
-        if self._segment_hits_table(here, pre):
-            wp = self._detour(here, pre)
-            if wp is None:
-                return fail(f"approach {name}: no collision-free route found")
-            r = self.navigate_to(*wp)
-            if not r["success"]:
-                return fail(f"approach {name}: {r['message']}")
-        r = self.navigate_to(pre[0], pre[1], np.degrees(yaw), tol=0.06)
-        if not r["success"]:
-            return fail(f"approach {name}: {r['message']}", **{k: v for k, v in r.items() if k != "success"})
-        # final straight-in move, temporarily ignoring the table inflation
-        r = self._drive_straight_to(goal, yaw)
-        if not r["success"]:
-            return r
-        fwd, left = self._to_robot_frame(self.sim.body_pos(name))
-        return ok(f"in front of {name}", item_forward_m=round(fwd, 3), item_left_m=round(left, 3), state=self._state())
-
     def _detour(self, a: np.ndarray, b: np.ndarray) -> np.ndarray | None:
         """Single waypoint around table corners that makes a->wp->b collision free."""
         best, best_len = None, np.inf
@@ -490,127 +443,90 @@ class Skills:
             return ok("reached", ee_err_m=round(err, 4))
         return fail("could not reach target with the gripper", ee_err_m=round(err, 3))
 
-    def _finger_axis_for(self, name: str) -> np.ndarray:
-        """Closing direction: the object's horizontal face axis closest to robot-lateral."""
+    def _finger_axis(self, yaw_deg: float) -> np.ndarray:
+        """Closing direction for gripper yaw: fingers close side-to-side relative to that heading.
+        The gripper is symmetric, so flip it toward robot-lateral to avoid needless wrist turns."""
+        a = np.radians(yaw_deg)
+        fa = np.array([-np.sin(a), np.cos(a), 0.0])
         b = self.sim.base_pose()
-        lateral = np.array([-np.sin(b.yaw), np.cos(b.yaw), 0.0])
-        R = self.sim.d.body(name).xmat.reshape(3, 3)
-        axes = [R[:, 0], R[:, 1]] if self.objects[name].shape == "box" else [lateral]
-        best = max(axes, key=lambda a: abs(a @ lateral))
-        best = best * np.sign(best @ lateral)
-        best[2] = 0
-        return best / np.linalg.norm(best)
+        return fa if fa @ np.array([-np.sin(b.yaw), np.cos(b.yaw), 0.0]) >= 0 else -fa
 
-    def _reach_check(self, p: np.ndarray, name: str) -> dict | None:
+    def _grasped_object(self) -> str | None:
+        return next((n for n in self.objects if self._is_grasped(n)), None)
+
+    def _update_holding(self) -> str | None:
+        """Re-check what is between the fingers; returns the name of an object that was dropped."""
+        was, self.holding = self.holding, self._grasped_object()
+        return was if was and was != self.holding else None
+
+    def _where(self, name: str) -> str:
+        q = self.sim.body_pos(name)
+        for bn_name, bn in self.bins.items():
+            c = self.sim.body_pos(bn_name)
+            if abs(q[0] - c[0]) < bn.half[0] and abs(q[1] - c[1]) < bn.half[1] and q[2] < c[2] + bn.wall_h + 0.03:
+                return bn_name
+        if self.holding == name:
+            return "gripper"
+        t = self._table_of(q)
+        return t.name if t is not None and q[2] > TABLE_H - 0.02 else "floor"
+
+    def _ee_report(self) -> dict:
+        return dict(ee_xyz=[round(float(v), 3) for v in self.sim.ee_pos()], holding=self.holding)
+
+    def move_eef(self, x: float, y: float, z: float, yaw_deg: float) -> dict:
+        """Move the gripper tip (pointing straight down) to a world point, gripper rotated to yaw_deg."""
+        p = np.array([x, y, z], float)
         fwd, left = self._to_robot_frame(p)
-        if not (0.18 <= fwd <= 0.55 and abs(left) <= 0.25):
+        if not (0.18 <= fwd <= 0.60 and abs(left) <= 0.30):
             return fail(
-                f"{name} is out of arm reach (forward={fwd:.2f} m, left={left:.2f} m); "
-                "reach needs forward 0.18-0.55 m and |left| <= 0.25 m. Move the base so the item is about 0.4 m straight ahead."
+                f"({x:.2f},{y:.2f}) is out of arm reach (forward={fwd:.2f} m, left={left:.2f} m from the base); "
+                "the arm reaches forward 0.18-0.60 m and at most 0.30 m sideways. Use navigate_to to move the base first."
             )
-        return None
-
-    def pick(self, name: str) -> dict:
-        if name not in self.objects:
-            return fail(f"unknown object '{name}'")
-        if self.holding:
-            where = "navigate next to the bin" if "bin" in self.seen else "search('bin'), navigate next to it"
-            return fail(f"already holding {self.holding} (one object at a time). First {where} and place it, then come back.")
-        if (e := self._require_seen(name)) is not None:
-            return e
-        p = self.sim.body_pos(name)
-        if (e := self._reach_check(p, name)) is not None:
-            return e
+        if not (TABLE_H - 0.05 <= z <= TABLE_H + 0.40):
+            return fail(f"z={z:.2f} is outside the arm's working height {TABLE_H - 0.05:.2f}-{TABLE_H + 0.40:.2f} m")
         if self._hold is None:
             self._hold_here()
-        fa = self._finger_axis_for(name)
-        o = self.objects[name]
-        half_h = o.size[2] if o.shape == "box" else o.size[1]
-        pre = p + np.array([0, 0, half_h + 0.12])
-        grasp = p + np.array([0, 0, max(0.0, half_h - 0.025)])
-        if self._solve(pre, fa) is None or self._solve(grasp, fa) is None:
-            return fail(f"no IK solution to grasp {name} from here; reposition the base")
-        self.sim.grip_target = GRIPPER_OPEN
-        q_pre = self._solve(pre, fa).q
-        if not self._move_joints(q_pre):
-            return fail("robot fell over")
-        r = self._servo_ee(pre, fa, speed=0.2)
+        fa = self._finger_axis(yaw_deg)
+        if np.linalg.norm(self.sim.ee_pos() - p) > 0.20:  # long move: joint-space to near the goal first
+            sol = self._solve(p, fa)
+            if sol is None:
+                return fail("no arm (IK) solution for that point and yaw from here; move the base or change yaw_deg")
+            if not self._move_joints(sol.q, speed=0.8):
+                return fail("robot fell over")
+        r = self._servo_ee(p, fa, speed=0.10, tol=0.005)
+        dropped = self._update_holding()
+        extra = {"dropped": dropped, "dropped_onto": self._where(dropped)} if dropped else {}
         if not r["success"]:
-            return fail(f"pre-grasp: {r['message']}")
-        r = self._servo_ee(grasp, fa, speed=0.08, tol=0.005)
-        if not r["success"]:
-            self._retreat()
-            return fail(f"descend: {r['message']}")
-        self.sim.grip_target = GRIPPER_CLOSED
-        self._wait(0.8)
-        z0 = self.sim.body_pos(name)[2]
-        r = self._servo_ee(self.sim.ee_pos() + np.array([0, 0, 0.15]), fa, speed=0.12)
-        lifted = self.sim.body_pos(name)[2] - z0
-        if lifted > 0.08 and self._is_grasped(name):
-            self.holding = name
-            self._move_joints(STOW_Q, speed=0.8)
-            self._wait(0.5)
-            if not self._is_grasped(name):
-                self.holding = None
-                return fail(f"{name} slipped while stowing the arm")
-            return ok(f"picked {name}", state=self._state())
-        self.sim.grip_target = GRIPPER_OPEN
-        self._retreat()
-        return fail(f"grasp failed: {name} lifted only {lifted:.3f} m")
+            return fail(f"move_eef: {r['message']}", **self._ee_report(), **extra)
+        return ok("gripper at target" + (f"; {dropped} slipped out" if dropped else ""), **self._ee_report(), **extra)
 
-    def place(self, target: str) -> dict:
-        """Place the held object into a bin (or onto the table at the bin's spot)."""
-        if not self.holding:
-            return fail("not holding anything")
-        if target not in self.bins and target not in self.tables:
-            return fail(f"unknown place target '{target}'")
-        if target in self.bins:
-            bn = self.bins[target]
-            p = self.sim.body_pos(target) + np.array([0, 0, bn.wall_h + 0.10])
-        else:
-            b = self.sim.base_pose()
-            p = np.array([b.x + 0.42 * np.cos(b.yaw), b.y + 0.42 * np.sin(b.yaw), TABLE_H + 0.08])
-            if self._table_of(p) is None:
-                return fail(f"no {target} surface in front of the robot; navigate next to it first")
-        if (e := self._reach_check(p, target)) is not None:
-            return e
+    def gripper(self, action: str) -> dict:
+        if action not in ("open", "close"):
+            return fail("gripper action must be 'open' or 'close'")
         if self._hold is None:
             self._hold_here()
-        b = self.sim.base_pose()
-        fa = np.array([-np.sin(b.yaw), np.cos(b.yaw), 0.0])
-        sol = self._solve(p, fa)
-        if sol is None:
-            return fail(f"no IK solution to place into {target} from here; reposition the base")
-        if not self._move_joints(sol.q, speed=0.8):
-            return fail("robot fell over")
-        r = self._servo_ee(p, fa, speed=0.1)
-        if not r["success"]:
-            return fail(f"place: {r['message']}")
+        if action == "close":
+            self.sim.grip_target = GRIPPER_CLOSED
+            self._wait(0.8)
+            self._update_holding()
+            if self.holding:
+                return ok(f"gripper closed on {self.holding}", **self._ee_report())
+            return fail("gripper closed on nothing", **self._ee_report())
         obj = self.holding
         self.sim.grip_target = GRIPPER_OPEN
         self._wait(0.8)
         self.holding = None
-        self._retreat()
-        q = self.sim.body_pos(obj)
-        inside = None
-        if target in self.bins:
-            c, bn = self.sim.body_pos(target), self.bins[target]
-            inside = bool(abs(q[0] - c[0]) < bn.half[0] and abs(q[1] - c[1]) < bn.half[1] and q[2] < c[2] + bn.wall_h + 0.03)
-        if inside is False:
-            return fail(f"released {obj} but it is not inside {target}", object_xyz=[round(float(v), 3) for v in q])
-        return ok(f"placed {obj} in/on {target}", state=self._state())
+        if obj is None:
+            return ok("gripper open", **self._ee_report())
+        return ok(f"released {obj}; it is now on/in {self._where(obj)}", object_now_on=self._where(obj), **self._ee_report())
 
-    def _retreat(self) -> None:
-        self._servo_ee(self.sim.ee_pos() + np.array([0, 0, 0.10]), speed=0.15, timeout=2.0)
-        self._move_joints(STOW_Q, speed=0.8)
-
-    def stow_arm(self) -> dict:
+    def _tuck_arm(self) -> dict | None:
+        """Before driving: lift clear of the table and fold the arm, keeping any held object."""
+        if np.max(np.abs(self.sim.arm_target - STOW_Q)) < 0.05:
+            return None
+        if self.sim.ee_pos()[2] < TABLE_H + 0.12:
+            self._servo_ee(self.sim.ee_pos() + np.array([0, 0, 0.10]), speed=0.15, timeout=2.0)
         if not self._move_joints(STOW_Q, speed=0.8):
             return fail("robot fell over")
-        return ok("arm stowed")
-
-    def open_gripper(self) -> dict:
-        self.sim.grip_target = GRIPPER_OPEN
-        self._wait(0.6)
-        self.holding = None
-        return ok("gripper open")
+        self._update_holding()
+        return None
