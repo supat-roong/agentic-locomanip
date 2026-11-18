@@ -251,7 +251,7 @@ class Skills:
         start, goal = np.array([b.x, b.y]), np.array([x, y], float)
         in_place = np.linalg.norm(goal - start) <= tol
         for t in self.tables.values():
-            if not in_place and self._box_dist(goal, t.pos, *TABLE_HALF) < NEAR_EDGE_MIN:
+            if not in_place and self._box_dist(goal, t.pos, *TABLE_HALF) < NEAR_EDGE_MIN - 1e-6:
                 return fail(
                     f"({x:.2f},{y:.2f}) is on {t.name} or closer than {NEAR_EDGE_MIN:.2f} m to its edge "
                     f"({t.name} spans x {t.pos[0] - TABLE_HALF[0]:.2f}..{t.pos[0] + TABLE_HALF[0]:.2f}, "
@@ -298,7 +298,7 @@ class Skills:
         """The valid standing range on the side of table t nearest to goal."""
         x0, x1 = t.pos[0] - TABLE_HALF[0], t.pos[0] + TABLE_HALF[0]
         y0, y1 = t.pos[1] - TABLE_HALF[1], t.pos[1] + TABLE_HALF[1]
-        m = NEAR_EDGE_MIN
+        m = NEAR_EDGE_MIN + 0.01  # quote a limit with margin so it is safely accepted
         sides = {
             "x_min": (abs(goal[0] - x0), f"x must be <= {x0 - m:.2f}"),
             "x_max": (abs(goal[0] - x1), f"x must be >= {x1 + m:.2f}"),

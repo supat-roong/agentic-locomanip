@@ -60,6 +60,8 @@ def test_navigate_to_rejects_points_on_a_table(sim):
     r = sk.navigate_to(1.82, 0.10)  # red cube's position, on table_A
     assert not r["success"] and "table_A" in r["message"] and "x 1.70..2.30" in r["message"]
     assert abs(sim.base_pose().x) < 0.1  # rejected before moving
+    assert "x must be <= 1.54" in r["message"]
+    assert "closer than" not in sk.navigate_to(1.55, 0.10, 0.0)["message"]  # exactly 0.15 m out is allowed
 
 
 def test_navigate_to_routes_around_table(sim):
