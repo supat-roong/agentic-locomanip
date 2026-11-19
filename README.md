@@ -1,6 +1,6 @@
-# tron2-agent
+# agentic-locomanip
 
-Agentic navigation and manipulation for the LimX TRON2 WFYG (wheel-legged base with one 6-DoF arm) in MuJoCo. A local vision-language model running in Ollama plans the task by calling robot tools. Everything runs on an Apple Silicon Mac (developed on an M4 with 16 GB), or on a Kaggle T4 GPU.
+Agentic loco-manipulation in MuJoCo, demonstrated on the LimX TRON2 WFYG (wheel-legged base with one 6-DoF arm). A local vision-language model running in Ollama plans the task by calling robot tools. Everything runs on an Apple Silicon Mac (developed on an M4 with 16 GB), or on a Kaggle T4 GPU.
 
 ## Architecture
 
@@ -45,15 +45,15 @@ With `--explain` every tool also takes a required `reason` string (one sentence)
 
 | Path | Contents |
 |---|---|
-| `src/tron2_agent/locomotion.py` | ONNX wheel-leg policy wrapper (observation layout matches LimX deploy code) |
-| `src/tron2_agent/arm.py` | Arm IK |
-| `src/tron2_agent/scene.py` | Scene: robot (coloured like the real TRON 2), two tables, cubes, can, bin, cameras |
-| `src/tron2_agent/sim.py` | Physics loop and low-level control |
-| `src/tron2_agent/skills.py` | Tool implementations |
-| `src/tron2_agent/agent.py` | Tool schemas, system prompt, validator, Ollama and scripted planners, episode runner |
-| `src/tron2_agent/tasks.py` | Tasks with ground-truth success checks |
-| `src/tron2_agent/demo.py` | Annotated demo video from a recorded run |
-| `src/tron2_agent/cli.py` | `tron2-agent run`, `eval` and `demo` |
+| `src/agentic_locomanip/locomotion.py` | ONNX wheel-leg policy wrapper (observation layout matches LimX deploy code) |
+| `src/agentic_locomanip/arm.py` | Arm IK |
+| `src/agentic_locomanip/scene.py` | Scene: robot (coloured like the real TRON 2), two tables, cubes, can, bin, cameras |
+| `src/agentic_locomanip/sim.py` | Physics loop and low-level control |
+| `src/agentic_locomanip/skills.py` | Tool implementations |
+| `src/agentic_locomanip/agent.py` | Tool schemas, system prompt, validator, Ollama and scripted planners, episode runner |
+| `src/agentic_locomanip/tasks.py` | Tasks with ground-truth success checks |
+| `src/agentic_locomanip/demo.py` | Annotated demo video from a recorded run |
+| `src/agentic_locomanip/cli.py` | `agentic-locomanip run`, `eval` and `demo` |
 | `scripts/fetch_assets.sh` | Downloads the LimX robot model and policy into `assets/` |
 | `tools/kaggle/` | Kaggle notebook generator and upload script |
 
@@ -68,17 +68,17 @@ ollama pull gemma4:12b-it-qat      # needs a recent Ollama (0.40+)
 ## Usage
 
 ```bash
-uv run tron2-agent run --task red_to_bin --planner scripted --video   # no LLM, sanity check
-uv run tron2-agent run --task red_to_bin --video --explain            # gemma4:12b-it-qat
-uv run tron2-agent demo runs/<run dir>                                # annotated demo.mp4
-uv run tron2-agent run --instruction "put the blue cube in the bin" --model qwen3-vl:8b-instruct
-uv run tron2-agent eval --task two_cubes --episodes 2 --seed 10 --max-steps 50   # randomized scenes
+uv run agentic-locomanip run --task red_to_bin --planner scripted --video   # no LLM, sanity check
+uv run agentic-locomanip run --task red_to_bin --video --explain            # gemma4:12b-it-qat
+uv run agentic-locomanip demo runs/<run dir>                                # annotated demo.mp4
+uv run agentic-locomanip run --instruction "put the blue cube in the bin" --model qwen3-vl:8b-instruct
+uv run agentic-locomanip eval --task two_cubes --episodes 2 --seed 10 --max-steps 50   # randomized scenes
 uv run pytest
 ```
 
 Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every tool call, result, reason and model latency), the camera images sent to the model, `result.json`, and with `--video` a chase-camera `video.mp4` plus `frames.json`.
 
-`tron2-agent demo` turns a run recorded with `--video` into a 1280x720 video: the robot on the left, and on the right the prompt, the camera image the model saw, its reason, the tool call and the result. Model thinking time is shown as a 2.5 s pause per call and robot motion plays at 1.5x (`--think-s`, `--speed`).
+`agentic-locomanip demo` turns a run recorded with `--video` into a 1280x720 video: the robot on the left, and on the right the prompt, the camera image the model saw, its reason, the tool call and the result. Model thinking time is shown as a 2.5 s pause per call and robot motion plays at 1.5x (`--think-s`, `--speed`).
 
 ## Kaggle
 

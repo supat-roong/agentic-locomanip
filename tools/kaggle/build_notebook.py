@@ -1,4 +1,4 @@
-"""Write tools/kaggle/notebook/tron2-agent-demo.ipynb (the Kaggle notebook).
+"""Write tools/kaggle/notebook/agentic-locomanip-demo.ipynb (the Kaggle notebook).
 
 The notebook expects the repo source as a private Kaggle dataset (see push.py),
 fetches the public LimX assets itself, runs Ollama on the GPU and records both
@@ -38,16 +38,16 @@ for p in glob.glob("/kaggle/input/**/pyproject.toml", recursive=True):
     SRC = os.path.dirname(p)
     break
 if SRC is None:  # archive not auto-extracted
-    tgz = glob.glob("/kaggle/input/**/tron2-agent*.tar.gz", recursive=True)[0]
+    tgz = glob.glob("/kaggle/input/**/agentic-locomanip*.tar.gz", recursive=True)[0]
     tarfile.open(tgz).extractall("/kaggle/tmp_src")
     SRC = os.path.dirname(glob.glob("/kaggle/tmp_src/**/pyproject.toml", recursive=True)[0])
-REPO = "/kaggle/working/tron2-agent"
+REPO = "/kaggle/working/agentic-locomanip"
 shutil.copytree(SRC, REPO, dirs_exist_ok=True)
 os.chdir(REPO)
 print("repo at", REPO, os.listdir(REPO))"""),
     ("code", """%%bash
 set -e
-cd /kaggle/working/tron2-agent
+cd /kaggle/working/agentic-locomanip
 pip install -q mujoco onnxruntime ollama imageio imageio-ffmpeg pyyaml scipy pillow 2>&1 | tail -2
 bash scripts/fetch_assets.sh
 python -c "import mujoco, numpy; print('mujoco', mujoco.__version__, 'numpy', numpy.__version__)" """),
@@ -65,7 +65,7 @@ import os, subprocess, sys
 
 def render_ok(backend):
     code = ("import os; os.environ['MUJOCO_GL']='%s'; import sys; sys.path.insert(0,'src'); "
-            "from tron2_agent.sim import Sim; s=Sim(); print(s.render('follow').shape)" % backend)
+            "from agentic_locomanip.sim import Sim; s=Sim(); print(s.render('follow').shape)" % backend)
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     print(backend, "->", (r.stdout or r.stderr).strip().splitlines()[-1:])
     return r.returncode == 0
@@ -82,7 +82,7 @@ print("MUJOCO_GL =", os.environ["MUJOCO_GL"])"""),
 
 def run_case(task, max_steps):
     t0 = time.time()
-    cmd = [sys.executable, "-m", "tron2_agent.cli", "run", "--task", task, "--model", "{MODEL}",
+    cmd = [sys.executable, "-m", "agentic_locomanip.cli", "run", "--task", task, "--model", "{MODEL}",
            "--video", "--explain", "--max-steps", str(max_steps)]
     log = open(f"/kaggle/working/{{task}}.log", "w")
     subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)
@@ -103,7 +103,7 @@ red_dir, red_res = run_case("red_to_bin", 40)"""),
     ("code", """# Annotated demo videos: robot view + prompt, camera image, model's reason, tool call and result
 for task, d in (("red_to_bin", red_dir), ("two_cubes", two_dir)):
     out = f"/kaggle/working/demo_{task}.mp4"
-    subprocess.run([sys.executable, "-m", "tron2_agent.cli", "demo", d, "--out", out], check=True)
+    subprocess.run([sys.executable, "-m", "agentic_locomanip.cli", "demo", d, "--out", out], check=True)
     print(out)"""),
     ("code", """from IPython.display import Video, display
 display(Video("/kaggle/working/demo_red_to_bin.mp4", embed=True, width=960))"""),
@@ -130,7 +130,7 @@ def main() -> None:
         "nbformat": 4,
         "nbformat_minor": 5,
     }
-    out = Path(__file__).parent / "notebook" / "tron2-agent-demo.ipynb"
+    out = Path(__file__).parent / "notebook" / "agentic-locomanip-demo.ipynb"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(nb, indent=1))
     print(out)

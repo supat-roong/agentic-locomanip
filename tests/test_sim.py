@@ -1,14 +1,14 @@
 import numpy as np
 import pytest
 
-from tron2_agent.paths import ROBOT_XML
+from agentic_locomanip.paths import ROBOT_XML
 
 pytestmark = pytest.mark.skipif(not ROBOT_XML.exists(), reason="run scripts/fetch_assets.sh first")
 
 
 @pytest.fixture(scope="module")
 def sim():
-    from tron2_agent.sim import Sim
+    from agentic_locomanip.sim import Sim
 
     s = Sim()
     yield s
@@ -36,7 +36,7 @@ def test_topdown_ik_reaches_table_height(sim):
 
 
 def test_move_eef_requires_reach(sim):
-    from tron2_agent.skills import Skills
+    from agentic_locomanip.skills import Skills
 
     sim.reset()
     r = Skills(sim).move_eef(1.82, 0.10, 0.76, 0.0)  # red cube, robot still at the origin
@@ -44,7 +44,7 @@ def test_move_eef_requires_reach(sim):
 
 
 def test_moving_away_from_table_is_allowed(sim):
-    from tron2_agent.skills import Skills
+    from agentic_locomanip.skills import Skills
 
     k = Skills(sim)
     near = np.array([1.5, 0.0])  # inside table_A's inflated footprint
@@ -53,7 +53,7 @@ def test_moving_away_from_table_is_allowed(sim):
 
 
 def test_navigate_to_rejects_points_on_a_table(sim):
-    from tron2_agent.skills import Skills
+    from agentic_locomanip.skills import Skills
 
     sim.reset()
     sk = Skills(sim)
@@ -65,7 +65,7 @@ def test_navigate_to_rejects_points_on_a_table(sim):
 
 
 def test_navigate_to_routes_around_table(sim):
-    from tron2_agent.skills import Skills
+    from agentic_locomanip.skills import Skills
 
     sim.reset()
     sk = Skills(sim)
@@ -77,7 +77,7 @@ def test_navigate_to_routes_around_table(sim):
 
 def test_navigate_then_move_eef_grasp_and_drop(sim):
     """The planner's job: stand 0.4 m out from the nearest edge, hover, lower, close, lift, drop in the bin."""
-    from tron2_agent.skills import Skills
+    from agentic_locomanip.skills import Skills
 
     sim.reset()
     sk = Skills(sim)

@@ -1,15 +1,15 @@
 import pytest
 
-from tron2_agent.paths import ROBOT_XML
+from agentic_locomanip.paths import ROBOT_XML
 
 pytestmark = pytest.mark.skipif(not ROBOT_XML.exists(), reason="run scripts/fetch_assets.sh first")
 
 
 def test_scripted_red_to_bin_succeeds():
-    from tron2_agent.agent import AgentRunner, scripted_pick_place
-    from tron2_agent.sim import Sim
-    from tron2_agent.skills import Skills
-    from tron2_agent.tasks import TASKS
+    from agentic_locomanip.agent import AgentRunner, scripted_pick_place
+    from agentic_locomanip.sim import Sim
+    from agentic_locomanip.skills import Skills
+    from agentic_locomanip.tasks import TASKS
 
     sim = Sim()
     sk = Skills(sim)

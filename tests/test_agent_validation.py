@@ -1,4 +1,4 @@
-from tron2_agent.agent import AgentRunner, ToolCall, validate_call
+from agentic_locomanip.agent import AgentRunner, ToolCall, validate_call
 
 
 def test_unknown_tool_rejected():
@@ -34,7 +34,7 @@ def test_old_images_dropped():
 
 
 def test_with_reason_adds_required_reason_to_every_tool():
-    from tron2_agent.agent import TOOLS, with_reason
+    from agentic_locomanip.agent import TOOLS, with_reason
 
     tools = with_reason(TOOLS)
     for t in tools:
@@ -44,7 +44,7 @@ def test_with_reason_adds_required_reason_to_every_tool():
 
 
 def test_demo_call_str():
-    from tron2_agent.demo import _call_str
+    from agentic_locomanip.demo import _call_str
 
     assert _call_str("gripper", {"action": "close"}) == 'gripper(action="close")'
     assert _call_str("rotate", {"angle_deg": 45.0}) == "rotate(angle_deg=45)"

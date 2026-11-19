@@ -1,7 +1,7 @@
 [project]
-name = "tron2-agent"
+name = "agentic-locomanip"
 version = "0.1.0"
-description = "Agentic nav + manipulation for LimX TRON2 WFYG in MuJoCo, planned by a local VLM via Ollama"
+description = "Agentic loco-manipulation: a local VLM plans a wheel-legged mobile manipulator (LimX TRON2 WFYG) in MuJoCo by calling robot tools"
 readme = "README.md"
 authors = [
     { name = "supat-roong", email = "roongpraiwan.supat@gmail.com" }
@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tron2-agent = "tron2_agent.cli:main"
+agentic-locomanip = "agentic_locomanip.cli:main"
 
 [tool.ruff]
 line-length = 120

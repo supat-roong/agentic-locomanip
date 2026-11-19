@@ -18,8 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent
-DATASET_SLUG = "tron2-agent-src"
-KERNEL_SLUG = "tron2-agent-demo"
+DATASET_SLUG = "agentic-locomanip-src"
+KERNEL_SLUG = "agentic-locomanip-demo"
 INCLUDE = ["pyproject.toml", "README.md", "src", "scripts"]
 
 
@@ -36,9 +36,9 @@ def kaggle(*args: str) -> str:
 def push_dataset(user: str) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
-        with tarfile.open(d / "tron2-agent.tar.gz", "w:gz") as tar:
+        with tarfile.open(d / "agentic-locomanip.tar.gz", "w:gz") as tar:
             for name in INCLUDE:
-                tar.add(ROOT / name, arcname=f"tron2-agent/{name}",
+                tar.add(ROOT / name, arcname=f"agentic-locomanip/{name}",
                         filter=lambda ti: None if "__pycache__" in ti.name else ti)
         meta = {"title": DATASET_SLUG, "id": f"{user}/{DATASET_SLUG}", "licenses": [{"name": "other"}]}
         (d / "dataset-metadata.json").write_text(json.dumps(meta, indent=1))
@@ -57,7 +57,7 @@ def push_kernel(user: str) -> None:
         shutil.copy(HERE / "notebook" / f"{KERNEL_SLUG}.ipynb", d)
         meta = {
             "id": f"{user}/{KERNEL_SLUG}",
-            "title": "TRON2 Agent Demo",
+            "title": "Agentic Locomanip Demo",
             "code_file": f"{KERNEL_SLUG}.ipynb",
             "language": "python",
             "kernel_type": "notebook",

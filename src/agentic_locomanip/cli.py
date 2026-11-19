@@ -1,11 +1,11 @@
 """Command-line entry point.
 
-  tron2-agent run --task red_to_bin                       # gemma4:12b-it-qat via Ollama
-  tron2-agent run --task red_to_bin --model qwen3-vl:8b-instruct
-  tron2-agent run --instruction "put the blue cube in the bin"
-  tron2-agent run --task red_to_bin --planner scripted    # no LLM baseline
-  tron2-agent eval --task red_to_bin --episodes 5
-  tron2-agent run --task two_cubes --video --explain && tron2-agent demo runs/<dir>
+  agentic-locomanip run --task red_to_bin                       # gemma4:12b-it-qat via Ollama
+  agentic-locomanip run --task red_to_bin --model qwen3-vl:8b-instruct
+  agentic-locomanip run --instruction "put the blue cube in the bin"
+  agentic-locomanip run --task red_to_bin --planner scripted    # no LLM baseline
+  agentic-locomanip eval --task red_to_bin --episodes 5
+  agentic-locomanip run --task two_cubes --video --explain && agentic-locomanip demo runs/<dir>
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ class VideoRecorder:
         self.path = path
         self.w = imageio.get_writer(str(path), fps=fps, macro_block_size=8)
         self.period, self.camera, self.next_t = 1.0 / fps, camera, None
-        self.times: list[float] = []  # sim time of each frame, used by `tron2-agent demo`
+        self.times: list[float] = []  # sim time of each frame, used by `agentic-locomanip demo`
 
     def __call__(self, sim: Sim) -> None:
         if self.next_t is None:
@@ -92,7 +92,7 @@ def episode(args, instruction: str, task_name: str | None, out_dir, verbose=True
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="tron2-agent")
+    ap = argparse.ArgumentParser(prog="agentic-locomanip")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("run", "eval"):
         p = sub.add_parser(name)
