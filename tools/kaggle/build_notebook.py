@@ -158,7 +158,8 @@ display(Video("/kaggle/working/demo_red_to_bin.mp4", embed=True, width=960))""")
 
 `tool_calls` counts every call the model made, `failed_calls` the ones a tool rejected (the model reads the error and
 tries again), `sim_s` simulated robot time and `llm_s` total model latency."""),
-    ("code", """import pandas as pd
+    ("code", """import shutil
+import pandas as pd
 rows = []
 for task, res in (("red_to_bin", red_res), ("two_cubes", two_res)):
     rows.append(dict(task=task, success=res["task_success"], tool_calls=res["steps"], failed_calls=res["failed_skills"],
