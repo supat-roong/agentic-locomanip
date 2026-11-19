@@ -1,8 +1,7 @@
-"""Upload the repo source as a Kaggle dataset and push the demo notebook (T4 GPU). Both are private unless --public.
+"""Push the demo notebook to Kaggle (T4 GPU, internet on). It clones the source from GitHub. Private unless --public.
 
   uv run python tools/kaggle/push.py --user <kaggle-username>
   uv run python tools/kaggle/push.py --user <kaggle-username> --public
-  uv run python tools/kaggle/push.py --user <kaggle-username> --skip-dataset   # notebook only
 
 Uses the Kaggle CLI through `uvx --with six kaggle` (credentials in ~/.kaggle).
 """
@@ -13,17 +12,14 @@ import argparse
 import json
 import shutil
 import subprocess
-import tarfile
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent
-DATASET_SLUG = "agentic-locomanip-src"
 KERNEL_FILE = "agentic-locomanip-demo.ipynb"
 KERNEL_TITLE = "Agentic Loco-Manipulation with a Local VLM"
 KERNEL_SLUG = "agentic-loco-manipulation-with-a-local-vlm"  # Kaggle derives the slug from the title
-INCLUDE = ["pyproject.toml", "README.md", "LICENSE", "src", "scripts"]
 
 
 def kaggle(*args: str) -> str:
@@ -34,23 +30,6 @@ def kaggle(*args: str) -> str:
     if r.returncode != 0:
         raise SystemExit(r.returncode)
     return out
-
-
-def push_dataset(user: str, public: bool) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-        with tarfile.open(d / "agentic-locomanip.tar.gz", "w:gz") as tar:
-            for name in INCLUDE:
-                tar.add(ROOT / name, arcname=f"agentic-locomanip/{name}",
-                        filter=lambda ti: None if "__pycache__" in ti.name else ti)
-        meta = {"title": "agentic-locomanip source", "id": f"{user}/{DATASET_SLUG}", "licenses": [{"name": "other"}]}
-        (d / "dataset-metadata.json").write_text(json.dumps(meta, indent=1))
-        exists = subprocess.run(["uvx", "--with", "six", "kaggle", "datasets", "status", f"{user}/{DATASET_SLUG}"],
-                                capture_output=True, text=True).returncode == 0
-        if exists:
-            kaggle("datasets", "version", "-p", str(d), "-m", "update source")
-        else:
-            kaggle("datasets", "create", "-p", str(d), *(["--public"] if public else []))
 
 
 def push_kernel(user: str, public: bool) -> None:
@@ -68,7 +47,7 @@ def push_kernel(user: str, public: bool) -> None:
             "enable_gpu": True,
             "enable_internet": True,
             "machine_shape": "NvidiaTeslaT4",
-            "dataset_sources": [f"{user}/{DATASET_SLUG}"],
+            "dataset_sources": [],
             "competition_sources": [],
             "kernel_sources": [],
         }
@@ -79,11 +58,8 @@ def push_kernel(user: str, public: bool) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--user", required=True)
-    ap.add_argument("--skip-dataset", action="store_true")
-    ap.add_argument("--public", action="store_true", help="make the dataset and notebook public")
+    ap.add_argument("--public", action="store_true", help="make the notebook public")
     a = ap.parse_args()
-    if not a.skip_dataset:
-        push_dataset(a.user, a.public)
     push_kernel(a.user, a.public)
 
 

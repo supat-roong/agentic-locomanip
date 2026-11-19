@@ -1,7 +1,6 @@
 """Write tools/kaggle/notebook/agentic-locomanip-demo.ipynb (the Kaggle notebook).
 
-The notebook expects the repo source as a private Kaggle dataset (see push.py),
-fetches the public LimX assets itself, runs Ollama on the GPU and records both
+The notebook clones the repo from GitHub, fetches the public LimX assets itself, runs Ollama on the GPU and records both
 use cases with annotated demo videos.
 """
 
@@ -70,22 +69,14 @@ is reported as a failure. With `--explain` every call also carries a one-sentenc
 Success is checked from simulator ground truth (is the cube inside the bin?), not from what the model claims."""),
     ("markdown", """## Setup
 
-Copy the source (attached as a Kaggle dataset), install the Python packages and fetch the robot assets
+Clone the source from GitHub, install the Python packages and fetch the robot assets
 (Apache-2.0, LimX Dynamics)."""),
-    ("code", """import glob, os, shutil, subprocess, tarfile
+    ("code", """import os, subprocess
 
-SRC = None
-for p in glob.glob("/kaggle/input/**/pyproject.toml", recursive=True):
-    SRC = os.path.dirname(p)
-    break
-if SRC is None:  # archive not auto-extracted
-    tgz = glob.glob("/kaggle/input/**/agentic-locomanip*.tar.gz", recursive=True)[0]
-    tarfile.open(tgz).extractall("/kaggle/tmp_src")
-    SRC = os.path.dirname(glob.glob("/kaggle/tmp_src/**/pyproject.toml", recursive=True)[0])
 REPO = "/kaggle/working/agentic-locomanip"
-shutil.copytree(SRC, REPO, dirs_exist_ok=True)
+subprocess.run(["git", "clone", "--depth", "1", "https://github.com/supat-roong/agentic-locomanip.git", REPO], check=True)
 os.chdir(REPO)
-print("repo at", REPO, os.listdir(REPO))"""),
+print(subprocess.run(["git", "log", "-1", "--format=%h %s"], capture_output=True, text=True).stdout)"""),
     ("code", """%%bash
 set -e
 cd /kaggle/working/agentic-locomanip

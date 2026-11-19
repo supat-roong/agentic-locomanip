@@ -96,7 +96,7 @@ uv run python tools/kaggle/push.py --user <kaggle-username>            # private
 uv run python tools/kaggle/push.py --user <kaggle-username> --public   # public
 ```
 
-This uploads the source as a Kaggle dataset and pushes the notebook (T4 GPU, internet on). The notebook fetches the LimX assets, installs Ollama and pulls the model itself.
+The notebook (T4 GPU, internet on) clones this repo from GitHub, fetches the LimX assets, installs Ollama and pulls the model itself.
 
 ## Tasks
 
