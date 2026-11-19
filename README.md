@@ -83,9 +83,9 @@ uv run agentic-locomanip eval --task two_cubes --episodes 2 --seed 10 --max-step
 uv run pytest
 ```
 
-Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every tool call, result, reason and model latency), the camera images sent to the model, `result.json`, and with `--video` a chase-camera `video.mp4` plus `frames.json`.
+Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every tool call, result, reason and model latency), the camera images sent to the model, `result.json`, and with `--video` a chase-camera `video.mp4`, a head-camera `head.mp4` and `frames.json`.
 
-`agentic-locomanip demo` turns a run recorded with `--video` into a 1280x720 video: the robot on the left, and on the right the prompt, the camera image the model saw, its reason, the tool call and the result. Model thinking time is shown as a 2.5 s pause per call and robot motion plays at 1.5x (`--think-s`, `--speed`).
+`agentic-locomanip demo` turns a run recorded with `--video` into a 1280x720 video: the robot on the left, and on the right the prompt, the live head camera (with the last image the model received as an inset), its reason, the tool call and the result. The head camera is recorded as `head.mp4`. Model thinking time is shown as a 2.5 s pause per call and robot motion plays at 1.5x (`--think-s`, `--speed`).
 
 ## Kaggle
 

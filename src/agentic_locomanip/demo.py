@@ -114,7 +114,10 @@ class Composer:
         self.steps, self.meta = steps, meta
         self.times = np.array(json.loads((run_dir / "frames.json").read_text()))
         self.frames = imageio.get_reader(str(run_dir / "video.mp4"))
+        head = run_dir / "head.mp4"  # live head camera, recorded by newer runs
+        self.head = imageio.get_reader(str(head)) if head.exists() else None
         self._cache: dict[int, np.ndarray] = {}
+        self._head_cache: dict[int, np.ndarray] = {}
         self._thumbs: dict[Path, Image.Image] = {}
 
     def sim_frame(self, t: float) -> Image.Image:
@@ -122,6 +125,13 @@ class Composer:
         if i not in self._cache:
             self._cache = {i: self.frames.get_data(i)}
         return Image.fromarray(self._cache[i]).resize((VID_W, VID_H), Image.BILINEAR)
+
+    def head_frame(self, t: float, w: int) -> Image.Image:
+        i = int(np.clip(np.searchsorted(self.times, t), 0, len(self.times) - 1))
+        if i not in self._head_cache:
+            self._head_cache = {i: self.head.get_data(i)}
+        im = Image.fromarray(self._head_cache[i])
+        return im.resize((w, int(w * im.height / im.width)), Image.BILINEAR)
 
     def thumb(self, p: Path | None, w: int) -> Image.Image | None:
         if p is None:
@@ -167,12 +177,26 @@ class Composer:
             y += 21
         y += 10
 
-        d.text((x, y), "WHAT THE MODEL SEES (head camera)", font=F_LABEL, fill=MUTED)
-        y += 18
-        th = self.thumb(st.seen_image, 300)
-        if th is not None:
-            img.paste(th, (x, y))
-            y += th.height
+        if self.head is not None:
+            # live head camera, with the last image the model actually received as an inset
+            d.text((x, y), "HEAD CAMERA (live)", font=F_LABEL, fill=MUTED)
+            y += 18
+            live = self.head_frame(t_sim, 300)
+            img.paste(live, (x, y))
+            th = self.thumb(st.seen_image, 104)
+            if th is not None:
+                ix, iy = x + 300 - th.width - 6, y + live.height - th.height - 6
+                d.rectangle([ix - 2, iy - 18, ix + th.width + 1, iy + th.height + 1], fill=(13, 17, 21))
+                d.text((ix + 3, iy - 15), "MODEL SAW", font=F_LABEL, fill=THINK)
+                img.paste(th, (ix, iy))
+            y += live.height
+        else:
+            d.text((x, y), "WHAT THE MODEL SEES (head camera)", font=F_LABEL, fill=MUTED)
+            y += 18
+            th = self.thumb(st.seen_image, 300)
+            if th is not None:
+                img.paste(th, (x, y))
+                y += th.height
         y += 12
 
         n_tools = len(self.steps)
@@ -235,7 +259,7 @@ class Composer:
                 d.text((box[0] + 28, yy), ln, font=F_BODY, fill=FG)
                 yy += 22
             stats = (f"{len(self.steps)} tool calls  ·  {self.meta.get('sim_time_s', 0):.0f} s sim  ·  "
-                     f"{self.meta.get('wall_time_s', 0) / 60:.1f} min wall on an M4")
+                     f"{self.meta.get('wall_time_s', 0) / 60:.1f} min wall")
             d.text((box[0] + 28, box[3] - 40), stats, font=F_SMALL, fill=MUTED)
         return np.asarray(img)
 

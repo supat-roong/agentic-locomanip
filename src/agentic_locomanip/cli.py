@@ -29,24 +29,29 @@ SCRIPTED_OBJ = {"red_to_bin": "red_cube", "blue_to_bin": "blue_cube", "can_to_bi
 
 
 class VideoRecorder:
-    def __init__(self, path, fps: int = 15, camera: str = "follow"):
+    """Records the chase camera (video.mp4) and the head camera (head.mp4) at the same sim times."""
+
+    def __init__(self, path, fps: int = 15, camera: str = "follow", extra: tuple[str, ...] = ("head",)):
         import imageio.v2 as imageio
 
         self.path = path
-        self.w = imageio.get_writer(str(path), fps=fps, macro_block_size=8)
-        self.period, self.camera, self.next_t = 1.0 / fps, camera, None
+        self.cams = [(camera, imageio.get_writer(str(path), fps=fps, macro_block_size=8))]
+        self.cams += [(c, imageio.get_writer(str(path.with_name(f"{c}.mp4")), fps=fps, macro_block_size=8)) for c in extra]
+        self.period, self.next_t = 1.0 / fps, None
         self.times: list[float] = []  # sim time of each frame, used by `agentic-locomanip demo`
 
     def __call__(self, sim: Sim) -> None:
         if self.next_t is None:
             self.next_t = sim.time
         if sim.time >= self.next_t:
-            self.w.append_data(sim.render(self.camera))
+            for cam, w in self.cams:
+                w.append_data(sim.render(cam))
             self.times.append(round(sim.time, 3))
             self.next_t += self.period
 
     def close(self) -> None:
-        self.w.close()
+        for _, w in self.cams:
+            w.close()
         self.path.with_name("frames.json").write_text(json.dumps(self.times))
 
 
