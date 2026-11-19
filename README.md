@@ -2,7 +2,7 @@
 
 Agentic loco-manipulation in MuJoCo, demonstrated on the LimX TRON2 WFYG (wheel-legged base with one 6-DoF arm). A local vision-language model running in Ollama plans the task by calling robot tools. Everything runs on an Apple Silicon Mac (developed on an M4 with 16 GB), or on a Kaggle T4 GPU.
 
-![gemma4:12b puts the red cube into the bin: 15 tool calls, none failed](docs/demo_red_to_bin.gif)
+![gemma4:12b puts the red cube into the bin: 15 tool calls, none failed](docs/demo_kaggle_red_to_bin.gif)
 
 *"Put the red cube into the bin." gemma4:12b-it-qat on a Kaggle T4: 15 tool calls, none failed. Left: the robot. Right: what the model saw, its reason and the tool call log. Sped up 2x.*
 
@@ -47,23 +47,6 @@ The planner never outputs motor commands, but it does all of the task reasoning.
 
 With `--explain` every tool also takes a required `reason` string (one sentence), which the demo video shows.
 
-## Layout
-
-| Path | Contents |
-|---|---|
-| `src/agentic_locomanip/locomotion.py` | ONNX wheel-leg policy wrapper (observation layout matches LimX deploy code) |
-| `src/agentic_locomanip/arm.py` | Arm IK |
-| `src/agentic_locomanip/scene.py` | Scene: robot (coloured like the real TRON 2), two tables, cubes, can, bin, cameras |
-| `src/agentic_locomanip/sim.py` | Physics loop and low-level control |
-| `src/agentic_locomanip/skills.py` | Tool implementations |
-| `src/agentic_locomanip/agent.py` | Tool schemas, system prompt, validator, Ollama and scripted planners, episode runner |
-| `src/agentic_locomanip/tasks.py` | Tasks with ground-truth success checks |
-| `src/agentic_locomanip/demo.py` | Annotated demo video from a recorded run |
-| `src/agentic_locomanip/cli.py` | `agentic-locomanip run`, `eval` and `demo` |
-| `scripts/fetch_assets.sh` | Downloads the LimX robot model and policy into `assets/` |
-| `tools/kaggle/` | Kaggle notebook generator and upload script |
-| `docs/` | README demo GIF |
-
 ## Setup
 
 ```bash
@@ -100,36 +83,31 @@ The notebook (T4 GPU, internet on) clones this repo from GitHub, fetches the Lim
 
 ## Tasks
 
-| Task | Instruction |
-|---|---|
-| `red_to_bin` | Put the red cube into the bin. |
-| `blue_to_bin` | Find the blue cube and put it in the bin. |
-| `can_to_bin` | Bring the green can to the bin. |
-| `two_cubes` | Put both cubes (red and blue) into the bin. |
+Each demo: the robot on the left; on the right the live head camera, the model's reason and the tool call log. All four runs used `gemma4:12b-it-qat` on the M4 (16 GB), default scene. GIFs play at 2x the demo video.
 
-## Results
+### `red_to_bin`
 
-On a Kaggle T4, default scene:
+*"Put the red cube into the bin."* 17 tool calls, 1 failed, 5.3 min on the M4.
 
-| Planner | Task | Success | Tool calls | Failed calls | Wall time |
-|---|---|---|---|---|---|
-| `gemma4:12b-it-qat` | `red_to_bin` | yes | 15 | 0 | 9.6 min |
-| `gemma4:12b-it-qat` | `two_cubes` | yes | 29 | 3 | 12.9 min |
+![red_to_bin demo](docs/demo_red_to_bin.gif)
 
-Model calls take 2 to 30 s on the T4. The failed `two_cubes` calls were drop heights the arm could not reach; the model raised the height until they worked.
+### `blue_to_bin`
 
-On an M4 (16 GB), randomized scenes (`--seed`, random start heading and object positions):
+*"Find the blue cube and put it in the bin."* 19 tool calls, 1 failed, 9.9 min on the M4.
 
-| Planner | Task | Success | Tool calls | Wall time per episode |
-|---|---|---|---|---|
-| `gemma4:12b-it-qat` | `red_to_bin` (seeds 10-12) | 3/3 | 17-20 | 9-55 min |
-| `gemma4:12b-it-qat` | `two_cubes` (seeds 10-11) | 1/2 | 35 (success) | |
-| `qwen3-vl:8b-instruct` | `red_to_bin` (default scene) | 0/5 | | |
-| scripted (no LLM) | `red_to_bin`, `blue_to_bin`, `can_to_bin` (seeds 1-4) | 12/12 | 11 | ~4 s |
+![blue_to_bin demo](docs/demo_blue_to_bin.gif)
 
-The failed `two_cubes` episode put the blue cube in the bin, then kept driving back to the same spot until the step limit. `qwen3-vl:8b` grasps correctly but reuses the wrong coordinates (the cube's, then its own pose) when heading for the bin. Two other 9B models were tried: `ornith-1.5:9b` grasped too high and the cube slipped out, and `mimo-v2.6:9b` ran out of GPU memory next to MuJoCo.
+### `can_to_bin`
 
-Wall time is mostly model latency. It grows from about 25 s to 1 to 2 min per call when the Mac runs low on memory.
+*"Bring the green can to the bin."* 18 tool calls, 2 failed, 8.8 min on the M4.
+
+![can_to_bin demo](docs/demo_can_to_bin.gif)
+
+### `two_cubes`
+
+*"Put both cubes (red and blue) into the bin."* 31 tool calls, 3 failed, 13.8 min on the M4.
+
+![two_cubes demo](docs/demo_two_cubes.gif)
 
 ## Models
 
@@ -139,13 +117,6 @@ Wall time is mostly model latency. It grows from about 25 s to 1 to 2 min per ca
 | Planner alternative | `qwen3-vl:8b-instruct` | 6.2 GB |
 
 Any Ollama model with tool calling works through `--model`. Use `--no-images` for text-only models.
-
-## Known limitations
-
-- Perception is privileged. Next step: replace `detect()` with VLM pointing on the head camera plus depth back-projection.
-- The locomotion policy never saw arm motion, so the arm is folded before every drive.
-- Navigation only avoids tables (straight-line checks plus one detour waypoint). It does not plan around arbitrary obstacles.
-- A 12B model plus MuJoCo is a tight fit in 16 GB. Episodes take 10 to 55 min of wall time.
 
 ## License
 
