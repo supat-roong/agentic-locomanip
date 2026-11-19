@@ -144,8 +144,8 @@ remember where the bin is, go back for the second cube and repeat."""),
     ("code", """two_dir, two_res = run_case("two_cubes", 50)"""),
     ("markdown", """## Demo videos
 
-Each video shows the robot on the left. On the right: the prompt, the head camera image the model saw, its reason for
-the next call, and the tool call log. Model thinking time is shown as a short pause and robot motion plays at 1.5x."""),
+Each video shows the robot on the left. On the right: the prompt, the live head camera (inset: the last image the model
+received), its reason for the next call, and the tool call log. Model thinking time is shown as a short pause and robot motion plays at 1.5x."""),
     ("code", """# Annotated demo videos: robot view + prompt, camera image, model's reason, tool call and result
 for task, d in (("red_to_bin", red_dir), ("two_cubes", two_dir)):
     out = f"/kaggle/working/demo_{task}.mp4"
@@ -166,17 +166,6 @@ for task, res in (("red_to_bin", red_res), ("two_cubes", two_res)):
                      sim_s=round(res["sim_time_s"]), llm_s=round(res["llm_time_s"]), wall_min=round(res["wall_time_s"] / 60, 1)))
 shutil.copytree("runs", "/kaggle/working/runs_out", dirs_exist_ok=True)
 pd.DataFrame(rows)"""),
-    ("markdown", """## Limitations and next steps
-
-- **Perception is privileged.** `detect()` reads positions from the simulator, filtered to what the head camera can see.
-  The next step is VLM pointing on the camera image plus depth back-projection.
-- **The locomotion policy never saw arm motion**, so the arm is folded before every drive and the base holds position
-  while the arm moves.
-- **Navigation only avoids tables** (straight-line checks plus one detour waypoint).
-- Runs are not always successful. On randomized scenes gemma4:12b solved 4 of 5 episodes on a Mac. The usual failure is
-  looping back to the same spot after the first cube.
-
-Full code, tests and more results: [github.com/supat-roong/agentic-locomanip](https://github.com/supat-roong/agentic-locomanip)"""),
 ]
 
 
