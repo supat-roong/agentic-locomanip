@@ -2,6 +2,12 @@
 
 Agentic loco-manipulation in MuJoCo, demonstrated on the LimX TRON2 WFYG (wheel-legged base with one 6-DoF arm). A local vision-language model running in Ollama plans the task by calling robot tools. Everything runs on an Apple Silicon Mac (developed on an M4 with 16 GB), or on a Kaggle T4 GPU.
 
+![gemma4:12b puts the red cube into the bin: 15 tool calls, none failed](docs/demo_red_to_bin.gif)
+
+*"Put the red cube into the bin." gemma4:12b-it-qat on a Kaggle T4: 15 tool calls, none failed. Left: the robot. Right: what the model saw, its reason and the tool call log. Sped up 2x.*
+
+**Run it yourself:** [Kaggle notebook: Agentic Loco-Manipulation with a Local VLM](https://www.kaggle.com/code/supatroongpraiwan/agentic-loco-manipulation-with-a-local-vlm) (free T4 GPU, about 30 min, no setup).
+
 ## Architecture
 
 ```
@@ -56,6 +62,7 @@ With `--explain` every tool also takes a required `reason` string (one sentence)
 | `src/agentic_locomanip/cli.py` | `agentic-locomanip run`, `eval` and `demo` |
 | `scripts/fetch_assets.sh` | Downloads the LimX robot model and policy into `assets/` |
 | `tools/kaggle/` | Kaggle notebook generator and upload script |
+| `docs/` | README demo GIF |
 
 ## Setup
 
@@ -82,11 +89,14 @@ Each run writes `runs/<stamp>_<task>_<model>/` containing `trace.jsonl` (every t
 
 ## Kaggle
 
+The public notebook [Agentic Loco-Manipulation with a Local VLM](https://www.kaggle.com/code/supatroongpraiwan/agentic-loco-manipulation-with-a-local-vlm) explains the setup, runs `red_to_bin` and `two_cubes` with gemma4:12b-it-qat on a T4 and renders both demo videos. To push your own copy:
+
 ```bash
-uv run python tools/kaggle/push.py --user <kaggle-username>
+uv run python tools/kaggle/push.py --user <kaggle-username>            # private
+uv run python tools/kaggle/push.py --user <kaggle-username> --public   # public
 ```
 
-This uploads the source as a private dataset and pushes a private notebook (T4 GPU, internet on). The notebook fetches the LimX assets, installs Ollama, pulls gemma4:12b-it-qat, runs `red_to_bin` and `two_cubes` with video, and renders both demo videos.
+This uploads the source as a Kaggle dataset and pushes the notebook (T4 GPU, internet on). The notebook fetches the LimX assets, installs Ollama and pulls the model itself.
 
 ## Tasks
 
@@ -98,6 +108,15 @@ This uploads the source as a private dataset and pushes a private notebook (T4 G
 | `two_cubes` | Put both cubes (red and blue) into the bin. |
 
 ## Results
+
+On a Kaggle T4, default scene:
+
+| Planner | Task | Success | Tool calls | Failed calls | Wall time |
+|---|---|---|---|---|---|
+| `gemma4:12b-it-qat` | `red_to_bin` | yes | 15 | 0 | 9.6 min |
+| `gemma4:12b-it-qat` | `two_cubes` | yes | 29 | 3 | 12.9 min |
+
+Model calls take 2 to 30 s on the T4. The failed `two_cubes` calls were drop heights the arm could not reach; the model raised the height until they worked.
 
 On an M4 (16 GB), randomized scenes (`--seed`, random start heading and object positions):
 
@@ -127,3 +146,7 @@ Any Ollama model with tool calling works through `--model`. Use `--no-images` fo
 - The locomotion policy never saw arm motion, so the arm is folded before every drive.
 - Navigation only avoids tables (straight-line checks plus one detour waypoint). It does not plan around arbitrary obstacles.
 - A 12B model plus MuJoCo is a tight fit in 16 GB. Episodes take 10 to 55 min of wall time.
+
+## License
+
+MIT for this repository (see `LICENSE`). The robot model and locomotion policy fetched by `scripts/fetch_assets.sh` come from [LimX Dynamics](https://github.com/limxdynamics) under Apache-2.0 and are not redistributed here.
